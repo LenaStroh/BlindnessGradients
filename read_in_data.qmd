@@ -1,0 +1,97 @@
+---
+title: "read in data"
+format: html
+editor: visual
+---
+
+
+
+```{r}
+rm(list = ls(all = TRUE))
+
+# library(broom)
+library(data.table)
+library(stringr)
+library(tidyr)
+
+source("R/utils.R")
+# library(tidyverse)
+
+# library(extrafont)
+# library(ggsegGlasser)
+# library(ggseg)
+
+# source("R/plotting.R")
+# source("R/rainclouds.R")
+
+setwd("data/")
+
+# read in data ------------------
+glasser <- fread("glasser360NodeNames.txt", header = FALSE)
+yeo <- fread("yeo_in_glasser.txt")
+group <- fread("group.txt", header = FALSE)
+age <- fread("age.txt", header = FALSE)
+sex <- fread("sex.txt", header = FALSE)
+
+gradient1 <- load_gradient("gradient1.txt", "gradient_1") 
+gradient2 <- load_gradient("gradient2.txt", "gradient_2") 
+gradient3 <- load_gradient("gradient3.txt", "gradient_3")
+
+demo <- cbind(group, age, sex, gradient1$subject)
+setnames(demo, old = colnames(demo)[1], new = "group")
+setnames(demo, old = colnames(demo)[2], new = "age")
+setnames(demo, old = colnames(demo)[3], new = "sex")
+setnames(demo, old = colnames(demo)[4], new = "subject")
+demo$sex <- as.factor(demo$sex)
+
+all <- rbind(gradient1, gradient2, gradient3)
+setDT(all)
+
+dt_long <- melt(all, id.vars = c("subject", "group", "gradient", "age", "sex"),
+                variable.name = "roi",
+                value.name = "gradient_score")
+
+dt_long <- dt_long[, hemi := sapply(str_split(roi, "_"), `[`, 1)]
+dt_long[hemi == "Left", hemi := "left"]
+dt_long[hemi == "Right", hemi := "right"]
+dt_long <- dt_long[, region := sapply(str_split(roi, "_"), `[`, 2)]
+dt_long <- dt_long[, roi := NULL]
+
+demographics <- unique(dt_long[, c("subject", "age", "sex", "group")])
+
+# add yeo network info
+nsubs <- length(unique(dt_long$subject))
+ngrad <- length(unique(dt_long$gradient))
+nrois <- length(unique(dt_long$region))
+dt_long <- dt_long[, yeo := rep(yeo$V1, each = nsubs * ngrad)]
+dt_long$yeo <- as.factor(dt_long$yeo)
+dt_long[yeo == "1", yeo := "VIS"]
+dt_long[yeo == "2", yeo := "SMN"]
+dt_long[yeo == "3", yeo := "DAN"]
+dt_long[yeo == "4", yeo := "VAN"]
+dt_long[yeo == "5", yeo := "LIN"]
+dt_long[yeo == "6", yeo := "FPN"]
+dt_long[yeo == "7", yeo := "DMN"]
+
+# add visaul stream info
+evc_regions <- c("V1", "V2", "V3", "V4")
+dorsal_regions <- c("V3A", "V3B", "V6", "V6A", "V7", "IPS1")
+ventral_regions <- c("V8", "VVC", "PIT", "FFC", "VMV1", "VMV2", "VMV3", "PHA1",
+                     "PHA2", "PHA3", "PreS", "ProS", "DVT")
+lateral_occ <- c("V3CD", "LO1", "LO2", "LO3", "V4t", "FST", "MT", "MST", "PH")
+
+dt_long[region %in% evc_regions, stream := "evc"]
+dt_long[region %in% dorsal_regions, stream := "dorsal"]
+dt_long[region %in% ventral_regions, stream := "ventral"]
+dt_long[region %in% lateral_occ, stream := "lateral"]
+
+# normalize scores
+dt_long[, gradient_score := (gradient_score - mean(gradient_score, na.rm = TRUE)) / sd(gradient_score, na.rm = TRUE),
+        by = .(gradient)]
+
+dt_yeo <- dt_long %>%
+  expand(nesting(region, yeo))
+
+saveRDS(dt_long, "gradients_df.RDS")
+
+```
