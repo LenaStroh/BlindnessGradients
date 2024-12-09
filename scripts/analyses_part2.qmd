@@ -1,0 +1,272 @@
+---
+title: "hierarchy in CB individuals"
+format: html
+editor: visual
+author: "Lena Stroh"
+---
+
+```{r}
+rm(list=ls(all=TRUE))
+
+library(data.table)
+library(stringr)
+library(tidyverse)
+library(viridis)
+library(ggpubr)
+library(afex)
+library(emmeans)
+library(extrafont)
+
+source("R/utils.R")
+source("R/plotting.R")
+source("R/rainclouds.R")
+```
+
+```{r}
+setwd("../data_tidy/")
+
+dt_long <- readRDS("gradients.RDS")
+dt_long <- dt_long[, .(mean_score = mean(gradient_score)),
+                   by = .(subject, region, group, gradient, yeo, stream)]
+
+visual_dt <- dt_long[!is.na(stream),]
+visual_dt[, order := rank(-mean_score), by = .(subject, stream, group, gradient)]
+
+visual_sum <- visual_dt[, .(sum_order = length(.I)),
+                        by = .(group, stream, order, region, gradient)]
+
+total_orders <- visual_dt[, .(total_order = .N), by = .(group, stream, region, gradient)]
+visual_sum <- merge(visual_sum, total_orders, by = c("group", "stream", "region", "gradient"))
+visual_sum[, proportion := sum_order / total_order]
+
+all_dist <- readRDS("minimum_distances.RDS")
+```
+
+# visual hierarchy
+
+## hierarchy
+
+```{r}
+evc <- visual_dt[stream == "evc",]
+evc_sum <-
+  evc[, .(mean_score = mean(mean_score)), by = .(group, region, gradient)]
+
+gradient_labels = c(gradient_1 = "Gradient 1",
+                    gradient_2 = "Gradient 2",
+                    gradient_3 = "Gradient 3")
+
+figure_a <- ggplot(evc_sum,
+                  aes(
+                    x = group,
+                    y = mean_score,
+                    fill = region,
+                    colour = region
+                  )) +
+  geom_point(shape = "-",
+             size = 15) +
+  ylab("mean gradient scores\n") +
+  scale_color_viridis(discrete = TRUE) +
+  scale_fill_viridis(discrete = TRUE)  +
+  mytheme +
+  facet_wrap(~ gradient, scales = "free",
+             labeller = labeller(gradient = gradient_labels))
+figure_a
+
+```
+
+## rank
+
+```{r}
+figure_b <- ggplot(evc,
+                  aes(x = group,
+                      y = order,
+                      color = region,
+                      fill = region)) +
+  geom_flat_violin(
+    aes(fill = region),
+    position = position_nudge(x = .25, y = 0),
+    adjust = 1.5,
+    trim = FALSE,
+    alpha = .5,
+    colour = NA
+  ) +
+  geom_boxplot(
+    aes(x = group, y = order, color = region),
+    position = position_dodge(width = 0.25),
+    outlier.shape = NA,
+    alpha = .5,
+    width = .2,
+    fill = "white"
+  ) +
+  scale_color_viridis(discrete = TRUE) +
+  scale_fill_viridis(discrete = TRUE)  +
+  mytheme +
+  xlab("group") +
+  ylab("rank\n") +
+  facet_grid( ~ gradient,
+             labeller = labeller(gradient = gradient_labels))
+figure_b
+
+```
+
+## Figure 2
+
+```{r}
+min_dist_g1_long <- all_dist[gradient == "gradient 1",]
+min_dist_g1_long <- min_dist_g1_long[, log_score := log(distance)]
+min_dist_g1_long$title <- "Gradient 1"
+
+fig_g1 <- create_violin_boxplot(
+  data = min_dist_g1_long,
+  x_var = "roi",
+  y_var = "log_score",
+  color_var = "group",
+  theme = mytheme,
+  x_label = "",
+  y_label = "log(minimum distance)\n",
+  fill_colors = c(SC = "#440154", CB = "#43BF71"),
+  color_colors = c(SC = "#440154", CB = "#43BF71")
+)
+
+min_dist_g2_long <- all_dist[gradient == "gradient 2",]
+min_dist_g2_long <- min_dist_g2_long[, log_score := log(distance)]
+
+fig_g2 <- create_violin_boxplot(
+  data = min_dist_g2_long,
+  x_var = "roi",
+  y_var = "log_score",
+  color_var = "group",
+  theme = mytheme,
+  x_label = "region",
+  y_label = "",
+  fill_colors = c(SC = "#440154", CB = "#43BF71"),
+  color_colors = c(SC = "#440154", CB = "#43BF71")
+)
+
+min_dist_g3_long <- all_dist[gradient == "gradient 3",]
+min_dist_g3_long <- min_dist_g3_long[, log_score := log(distance)]
+
+fig_g3 <- create_violin_boxplot(
+  data = min_dist_g3_long,
+  x_var = "roi",
+  y_var = "log_score",
+  color_var = "group",
+  theme = mytheme,
+  x_label = "",
+  y_label = "",
+  fill_colors = c(SC = "#440154", CB = "#43BF71"),
+  color_colors = c(SC = "#440154", CB = "#43BF71")
+)
+
+all_figs <- ggarrange(figure_a,
+                      NULL,
+                      figure_b,
+                      NULL,
+                      ggarrange(fig_g1 + theme(legend.box.margin = margin(r = 20)),
+  fig_g2 + theme(
+    legend.box.margin = margin(r = 20)),
+  fig_g3 + theme(
+    legend.box.margin = margin(r = 20)), 
+  ncol = 3,
+  common.legend = TRUE,
+  legend = "right",
+  labels = c("C", "", "")),
+  ncol = 1,
+  labels = c("A", "", "B"),
+  heights = c(1, 0.15, 1, 0.15, 1),
+  align = "v"
+)
+
+setwd('../figures')
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(
+  all_figs,
+  filename = "figure_2.pdf",
+  device = cairo_pdf,
+  height = 30,
+  width = 26,
+  units = "cm",
+  bg = "transparent",
+  dpi = "print"
+)
+  
+# tiff(
+#   "figure_dist.tiff",
+#   height = 30,
+#   width = 26,
+#   units = "cm",
+#   compression = "lzw",
+#   res = 500,
+#   type = "cairo",
+#   bg = "white"
+# )
+# all_figs
+# dev.off()
+
+```
+
+# analysis - minimum distance of regions to each other
+
+## gradient 1
+
+```{r}
+model_g1 <- mixed(log(distance) ~ group*roi + (1|subject),
+                  min_dist_g1_long)
+model_g1
+```
+
+### EMMs
+
+```{r}
+emm_int <- emmeans(model_g1, ~ group | roi, type = "response")
+emm_int
+```
+
+### post-hoc tests
+
+```{r}
+update(pairs(emm_int), adjust = "holm", by = NULL)
+```
+
+## gradient 2
+
+```{r}
+model_g2 <- mixed(log(distance) ~ group*roi + (1|subject),
+                  min_dist_g2_long)
+model_g2
+```
+
+### EMMs
+
+```{r}
+emm_in <- emmeans(model_g2, ~ group | roi, type = "response")
+emm_in
+```
+
+### post-hoc tests
+
+```{r}
+update(pairs(emm_in), adjust = "holm", by = NULL)
+```
+
+## gradient 3
+
+```{r}
+model_g3 <- mixed(log(distance) ~ group*roi + (1|subject),
+                  min_dist_g3_long)
+model_g3
+```
+
+### EMMs
+
+```{r}
+emm_int <- emmeans(model_g3, ~group | roi, type = "response")
+emm_int
+```
+
+### post-hoc tests
+
+```{r}
+update(pairs(emm_int), adjust = "holm", by = NULL)
+```

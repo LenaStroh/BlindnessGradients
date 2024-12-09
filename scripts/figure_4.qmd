@@ -1,0 +1,246 @@
+---
+title: "structure-function coupling - figure 4"
+format: html
+editor: visual
+author: "Lena Stroh"
+---
+
+
+```{r}
+rm(list = ls(all = TRUE))
+
+library(data.table)
+library(ggplot2)
+library(extrafont)
+library(ggsegGlasser)
+library(ggseg)
+
+```
+
+```{r}
+setwd("../data_tidy/")
+
+sfc <- readRDS("sf_coupling.RDS")
+```
+
+```{r}
+pca_sc <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = pca_sc)) +
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
+                       limits = c(-1200, 8000)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "pca\nscore") +
+  ggtitle("SC")
+pca_sc
+```
+
+```{r}
+pca_cb <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = pca_cb)) +
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
+                       limits = c(-1200, 8000)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "pca\nscore") +
+  ggtitle("CB")
+pca_cb
+
+```
+
+```{r}
+sfc_g1_sc <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = coupling_g1_sc)) +
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
+                       limits = c(-0.6, 0.6)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "rho")
+sfc_g1_sc
+
+```
+
+```{r}
+sfc_g1_cb <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = coupling_g1_cb)) +
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
+                       limits = c(-0.6, 0.6)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "rho")
+sfc_g1_cb
+
+```
+
+```{r}
+diff_g1 <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = sig_regions)) +
+  scale_fill_gradient2(low = "#440154", mid = "grey", high = "#43BF71",
+                       limits = c(-1, 1)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "")
+diff_g1
+
+```
+
+```{r}
+sfc_g2_sc <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = coupling_g2_sc)) +
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
+                       limits = c(-0.6, 0.6)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "rho")
+sfc_g2_sc
+
+```
+
+```{r}
+sfc_g2_cb <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = coupling_g2_cb)) +
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
+                       limits = c(-0.6, 0.6)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "rho")
+sfc_g2_cb
+
+```
+
+```{r}
+sfc_g3_sc <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = coupling_g3_sc)) +
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
+                       limits = c(-0.6, 0.6)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "rho")
+sfc_g3_sc
+
+```
+
+```{r}
+sfc_g3_cb <- ggplot(data = sfc) +
+  geom_brain(atlas = glasser, 
+             position = position_brain(side ~ hemi),
+             aes(fill = coupling_g3_cb)) +
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
+                       limits = c(-0.6, 0.6)) +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  labs(fill = "rho")
+sfc_g3_cb
+
+```
+
+# Figure 4
+
+```{r}
+cowplot::set_null_device(cairo_pdf)
+
+legend_pca <- cowplot::get_legend(
+  pca_sc
+  )
+
+legend_g1 <- cowplot::get_legend(
+  sfc_g1_sc
+  )
+
+legend_diff_g1 <- cowplot::get_legend(
+  diff_g1
+  )
+
+legend_g2 <- cowplot::get_legend(
+  sfc_g2_sc
+  )
+
+legend_g3 <- cowplot::get_legend(
+  sfc_g3_sc
+  )
+
+pca_all <- cowplot::plot_grid(
+  pca_sc + theme(legend.position = "none"), legend_pca, pca_cb + theme(legend.position = "none"), NULL, NULL, NULL,
+  NULL, NULL, NULL, NULL, NULL, NULL,
+  sfc_g1_sc + theme(legend.position = "none"), legend_g1, sfc_g1_cb + theme(legend.position = "none"), NULL, diff_g1 + theme(legend.position = "none"), legend_diff_g1,
+  NULL, NULL, NULL, NULL, NULL, NULL,
+  sfc_g2_sc + theme(legend.position = "none"), legend_g2, sfc_g2_cb + theme(legend.position = "none"), NULL, NULL, NULL,
+  NULL, NULL, NULL, NULL, NULL, NULL,
+  sfc_g3_sc + theme(legend.position = "none"), legend_g3, sfc_g3_cb + theme(legend.position = "none"), NULL, NULL, NULL,
+  labels = c('A', "", "", "", "", "",
+             "", "", "", "", "", "",
+             "B", "", "", "", "", "",
+             "", "", "", "", "", "",
+             "C", "", "", "", "", "",
+             "", "", "", "", "", "",
+             "D", "", "", "", "", "",
+             "", "", "", "", "", "",
+             "E", "", "", "", "", ""),
+  label_size = 12,
+  rel_widths = c(1, 0.25, 1, 0.1, 1, 0.25),
+  rel_heights = c(1, 0.1, 1, 0.1, 1, 0.1, 1),
+  ncol = 6,
+  align = "v")
+
+setwd("../figures")
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(pca_all,
+       filename = "figure_4.pdf",
+       device = cairo_pdf,
+       height = 20,
+       width = 22,
+       units = "cm",
+       bg = "transparent",
+       dpi = "print"
+       )
+
+# tiff("figure_4.tiff",
+#      height = 20, 
+#      width = 20, 
+#      units = "cm",
+#      compression = "lzw", 
+#      res = 500, 
+#      type = "cairo",
+#      bg = "white")
+# pca_all
+# dev.off()
+```
