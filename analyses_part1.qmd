@@ -1,7 +1,8 @@
 ---
-title: "3.2 Connectivity gradients across neocortex"
+title: "Connectivity gradients across neocortex"
 format: html
 editor: visual
+author: "Lena Stroh"
 ---
 
 ```{r}
@@ -65,7 +66,6 @@ grad_plot <- ggplot(dt_region, aes(x = centroid, y = yeo, fill = yeo, color = ye
   theme(legend.position = "none")
 grad_plot
 ```
-
 
 ```{r}
 sum_group <- dt_long[, .(mean_grad = mean(gradient_score)), by = .(group, yeo, region, gradient)]

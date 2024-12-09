@@ -2,6 +2,7 @@
 title: "hierarchy in CB individuals"
 format: html
 editor: visual
+author: "Lena Stroh"
 ---
 
 ```{r}
@@ -14,68 +15,15 @@ library(viridis)
 library(ggpubr)
 library(afex)
 library(emmeans)
+library(extrafont)
 
 source("R/utils.R")
 source("R/plotting.R")
 source("R/rainclouds.R")
-
-
-# library(corrplot)
-# library(extrafont)
-# 
 ```
 
 ```{r}
-setwd("data/")
-
-# glasser <- fread("glasser360NodeNames.txt", header = FALSE)
-# yeo <- fread("yeo_in_glasser.txt")
-# group <- fread("group.txt", header = FALSE)
-# age <- fread("age.txt", header = FALSE)
-# sex <- fread("sex.txt", header = FALSE)
-# 
-# gradient1 <- load_gradient("gradient1.txt", "gradient_1") 
-# gradient2 <- load_gradient("gradient2.txt", "gradient_2") 
-# gradient3 <- load_gradient("gradient3.txt", "gradient_3")
-# 
-# all <- rbind(gradient1, gradient2, gradient3)
-# setDT(all)
-# 
-# dt_long <- melt(all, id.vars = c("subject", "group", "gradient", "age", "sex"),
-#                 variable.name = "roi",
-#                 value.name = "gradient_score")
-# 
-# dt_long <- dt_long[, hemi := sapply(str_split(roi, "_"), `[`, 1)]
-# dt_long[hemi == "Left", hemi := "left"]
-# dt_long[hemi == "Right", hemi := "right"]
-# dt_long <- dt_long[, region := sapply(str_split(roi, "_"), `[`, 2)]
-# dt_long <- dt_long[, roi := NULL]
-# 
-# # add yeo network info
-# nsubs <- length(unique(dt_long$subject))
-# ngrad <- length(unique(dt_long$gradient))
-# nrois <- length(unique(dt_long$region))
-# dt_long <- dt_long[, yeo := rep(yeo$V1, each = nsubs * ngrad)]
-# dt_long$yeo <- as.factor(dt_long$yeo)
-# dt_long[yeo == "1", yeo := "VIS"]
-# dt_long[yeo == "2", yeo := "SMN"]
-# dt_long[yeo == "3", yeo := "DAN"]
-# dt_long[yeo == "4", yeo := "VAN"]
-# dt_long[yeo == "5", yeo := "LIN"]
-# dt_long[yeo == "6", yeo := "FPN"]
-# dt_long[yeo == "7", yeo := "DMN"]
-# 
-# # add visaul stream info
-# evc_regions <- c("V1", "V2", "V3", "V4")
-# dorsal_regions <- c("V3A", "V3B", "V6", "V6A", "V7", "IPS1")
-# ventral_regions <- c("V8", "VVC", "PIT", "FFC", "VMV1", "VMV2", "VMV3", "PHA1",
-#                      "PHA2", "PHA3", "PreS", "ProS", "DVT")
-# lateral_occ <- c("V3CD", "LO1", "LO2", "LO3", "V4t", "FST", "MT", "MST", "PH")
-# 
-# dt_long[region %in% evc_regions, stream := "evc"]
-# dt_long[region %in% dorsal_regions, stream := "dorsal"]
-# dt_long[region %in% ventral_regions, stream := "ventral"]
-# dt_long[region %in% lateral_occ, stream := "lateral"]
+setwd("../data_tidy/")
 
 dt_long <- readRDS("gradients.RDS")
 dt_long <- dt_long[, .(mean_score = mean(gradient_score)),
@@ -91,82 +39,7 @@ total_orders <- visual_dt[, .(total_order = .N), by = .(group, stream, region, g
 visual_sum <- merge(visual_sum, total_orders, by = c("group", "stream", "region", "gradient"))
 visual_sum[, proportion := sum_order / total_order]
 
-
-# # add yeo network info
-# nsubs <- length(unique(dt_long$subject))
-# ngrad <- length(unique(dt_long$gradient))
-# nrois <- length(unique(dt_long$region))
-# dt_long <- dt_long[, yeo := rep(yeo$V1, each = nsubs*ngrad)]
-# 
-
-# 
-# visual_rois <- c("V1", "V2", "V3", "V4", "V3A", "V3B", "V6", "V6A", "V7", "IPS1", 
-#                     "V8", "VVC", "PIT", "FFC", "VMV1", "VMV2", "VMV3", "V3CD", 
-#                     "LO1", "LO2", "LO3", "V4t", "FST", "MT", "MST", "PH")
-# 
-# visual_dt <- dt_long[region %in% visual_rois,]
-# 
-# evc_regions <- c("V1", "V2", "V3", "V4")
-# dorsal_regions <- c("V3A", "V3B", "V6", "V6A", "V7", "IPS1")
-# ventral_regions <- c("V8", "VVC", "PIT", "FFC", "VMV1", "VMV2", "VMV3")
-# lateral_occ <- c("V3CD", "LO1", "LO2", "LO3", "V4t", "FST", "MT", "MST", "PH")
-# 
-# visual_dt <- visual_dt[region %in% evc_regions, stream := "evc"]
-# visual_dt <- visual_dt[region %in% dorsal_regions, stream := "dorsal"]
-# visual_dt <- visual_dt[region %in% ventral_regions, stream := "ventral"]
-# visual_dt <- visual_dt[region %in% lateral_occ, stream := "lateral"]
-# 
-# visual_dt[, order := rank(-mean_score), by = .(subject, stream, group, gradient)]
-# 
-# visual_sum <- visual_dt[, .(sum_order = length(.I)),
-#                         by = .(group, stream, order, region, gradient)]
-# 
-# total_orders <- visual_dt[, .(total_order = .N), by = .(group, stream, region, gradient)]
-# visual_sum <- merge(visual_sum, total_orders, by = c("group", "stream", "region", "gradient"))
-# visual_sum[, proportion := sum_order / total_order]
-```
-
-```{r}
-setwd("data/")
-
 all_dist <- readRDS("minimum_distances.RDS")
-
-# min_dist_g1 <- fread("min_distance_gradient1.txt")
-# min_dist_g1$group <- group
-# min_dist_g1 <- min_dist_g1[, subject := seq(1, length(.I))]
-# min_dist_g1$gradient <- "gradient 1"
-# 
-# min_dist_g2 <- fread("min_distance_gradient2.txt")
-# min_dist_g2$group <- group
-# min_dist_g2 <- min_dist_g2[, subject := seq(1, length(.I))]
-# min_dist_g2$gradient <- "gradient 2"
-# 
-# min_dist_g3 <- fread("min_distance_gradient3.txt")
-# min_dist_g3$group <- group
-# min_dist_g3 <- min_dist_g3[, subject := seq(1, length(.I))]
-# min_dist_g3$gradient <- "gradient 3"
-# 
-# 
-# all_dist <- rbind(min_dist_g1, min_dist_g2, min_dist_g3)
-# 
-# all_dist_long <- melt(all_dist, id.vars = c("subject", "group", "gradient"), 
-#                 measure.vars = c("V1", "V2", "V3", "V4"))
-# 
-# all_dist_long <- all_dist_long[, .(mean_score = mean(value)), 
-#                    by = .(subject, variable, group, gradient)]
-
-
-# all_dist_long <- all_dist_long[, hemi := sapply(str_split(roi, "_"), `[`, 1)]
-# all_dist_long <- all_dist_long[, region := sapply(str_split(roi, "_"), `[`, 2)]
-# all_dist_long <- all_dist_long[, .(mean_score = mean(min_distance)), 
-#                    by = .(subject, region, group, gradient)]
-# 
-# all_dist_long <- all_dist_long[region %in% visual_rois,]
-# 
-# all_dist_long <- all_dist_long[region %in% evc_regions, stream := "evc"]
-# all_dist_long <- all_dist_long[region %in% dorsal_regions, stream := "dorsal"]
-# all_dist_long <- all_dist_long[region %in% ventral_regions, stream := "ventral"]
-# all_dist_long <- all_dist_long[region %in% lateral_occ, stream := "lateral"]
 ```
 
 # visual hierarchy
