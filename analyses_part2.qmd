@@ -9,71 +9,75 @@ rm(list=ls(all=TRUE))
 
 library(data.table)
 library(stringr)
+library(tidyverse)
+library(viridis)
+library(ggpubr)
+library(afex)
+library(emmeans)
 
 source("R/utils.R")
-# 
-# library(tidyverse)
-# library(afex)
-# library(emmeans)
+source("R/plotting.R")
+source("R/rainclouds.R")
+
+
 # library(corrplot)
-# source("R/plotting.R")
-# source("R/rainclouds.R")
-# library(viridis)
 # library(extrafont)
-# library(ggpubr)
+# 
 ```
 
 ```{r}
 setwd("data/")
 
-glasser <- fread("glasser360NodeNames.txt", header = FALSE)
-yeo <- fread("yeo_in_glasser.txt")
-group <- fread("group.txt", header = FALSE)
-age <- fread("age.txt", header = FALSE)
-sex <- fread("sex.txt", header = FALSE)
+# glasser <- fread("glasser360NodeNames.txt", header = FALSE)
+# yeo <- fread("yeo_in_glasser.txt")
+# group <- fread("group.txt", header = FALSE)
+# age <- fread("age.txt", header = FALSE)
+# sex <- fread("sex.txt", header = FALSE)
+# 
+# gradient1 <- load_gradient("gradient1.txt", "gradient_1") 
+# gradient2 <- load_gradient("gradient2.txt", "gradient_2") 
+# gradient3 <- load_gradient("gradient3.txt", "gradient_3")
+# 
+# all <- rbind(gradient1, gradient2, gradient3)
+# setDT(all)
+# 
+# dt_long <- melt(all, id.vars = c("subject", "group", "gradient", "age", "sex"),
+#                 variable.name = "roi",
+#                 value.name = "gradient_score")
+# 
+# dt_long <- dt_long[, hemi := sapply(str_split(roi, "_"), `[`, 1)]
+# dt_long[hemi == "Left", hemi := "left"]
+# dt_long[hemi == "Right", hemi := "right"]
+# dt_long <- dt_long[, region := sapply(str_split(roi, "_"), `[`, 2)]
+# dt_long <- dt_long[, roi := NULL]
+# 
+# # add yeo network info
+# nsubs <- length(unique(dt_long$subject))
+# ngrad <- length(unique(dt_long$gradient))
+# nrois <- length(unique(dt_long$region))
+# dt_long <- dt_long[, yeo := rep(yeo$V1, each = nsubs * ngrad)]
+# dt_long$yeo <- as.factor(dt_long$yeo)
+# dt_long[yeo == "1", yeo := "VIS"]
+# dt_long[yeo == "2", yeo := "SMN"]
+# dt_long[yeo == "3", yeo := "DAN"]
+# dt_long[yeo == "4", yeo := "VAN"]
+# dt_long[yeo == "5", yeo := "LIN"]
+# dt_long[yeo == "6", yeo := "FPN"]
+# dt_long[yeo == "7", yeo := "DMN"]
+# 
+# # add visaul stream info
+# evc_regions <- c("V1", "V2", "V3", "V4")
+# dorsal_regions <- c("V3A", "V3B", "V6", "V6A", "V7", "IPS1")
+# ventral_regions <- c("V8", "VVC", "PIT", "FFC", "VMV1", "VMV2", "VMV3", "PHA1",
+#                      "PHA2", "PHA3", "PreS", "ProS", "DVT")
+# lateral_occ <- c("V3CD", "LO1", "LO2", "LO3", "V4t", "FST", "MT", "MST", "PH")
+# 
+# dt_long[region %in% evc_regions, stream := "evc"]
+# dt_long[region %in% dorsal_regions, stream := "dorsal"]
+# dt_long[region %in% ventral_regions, stream := "ventral"]
+# dt_long[region %in% lateral_occ, stream := "lateral"]
 
-gradient1 <- load_gradient("gradient1.txt", "gradient_1") 
-gradient2 <- load_gradient("gradient2.txt", "gradient_2") 
-gradient3 <- load_gradient("gradient3.txt", "gradient_3")
-
-all <- rbind(gradient1, gradient2, gradient3)
-setDT(all)
-
-dt_long <- melt(all, id.vars = c("subject", "group", "gradient", "age", "sex"),
-                variable.name = "roi",
-                value.name = "gradient_score")
-
-dt_long <- dt_long[, hemi := sapply(str_split(roi, "_"), `[`, 1)]
-dt_long[hemi == "Left", hemi := "left"]
-dt_long[hemi == "Right", hemi := "right"]
-dt_long <- dt_long[, region := sapply(str_split(roi, "_"), `[`, 2)]
-dt_long <- dt_long[, roi := NULL]
-
-# add yeo network info
-nsubs <- length(unique(dt_long$subject))
-ngrad <- length(unique(dt_long$gradient))
-nrois <- length(unique(dt_long$region))
-dt_long <- dt_long[, yeo := rep(yeo$V1, each = nsubs * ngrad)]
-dt_long$yeo <- as.factor(dt_long$yeo)
-dt_long[yeo == "1", yeo := "VIS"]
-dt_long[yeo == "2", yeo := "SMN"]
-dt_long[yeo == "3", yeo := "DAN"]
-dt_long[yeo == "4", yeo := "VAN"]
-dt_long[yeo == "5", yeo := "LIN"]
-dt_long[yeo == "6", yeo := "FPN"]
-dt_long[yeo == "7", yeo := "DMN"]
-
-# add visaul stream info
-evc_regions <- c("V1", "V2", "V3", "V4")
-dorsal_regions <- c("V3A", "V3B", "V6", "V6A", "V7", "IPS1")
-ventral_regions <- c("V8", "VVC", "PIT", "FFC", "VMV1", "VMV2", "VMV3", "PHA1",
-                     "PHA2", "PHA3", "PreS", "ProS", "DVT")
-lateral_occ <- c("V3CD", "LO1", "LO2", "LO3", "V4t", "FST", "MT", "MST", "PH")
-
-dt_long[region %in% evc_regions, stream := "evc"]
-dt_long[region %in% dorsal_regions, stream := "dorsal"]
-dt_long[region %in% ventral_regions, stream := "ventral"]
-dt_long[region %in% lateral_occ, stream := "lateral"]
+dt_long <- readRDS("gradients.RDS")
 dt_long <- dt_long[, .(mean_score = mean(gradient_score)),
                    by = .(subject, region, group, gradient, yeo, stream)]
 
@@ -86,6 +90,7 @@ visual_sum <- visual_dt[, .(sum_order = length(.I)),
 total_orders <- visual_dt[, .(total_order = .N), by = .(group, stream, region, gradient)]
 visual_sum <- merge(visual_sum, total_orders, by = c("group", "stream", "region", "gradient"))
 visual_sum[, proportion := sum_order / total_order]
+
 
 # # add yeo network info
 # nsubs <- length(unique(dt_long$subject))
@@ -119,36 +124,36 @@ visual_sum[, proportion := sum_order / total_order]
 # total_orders <- visual_dt[, .(total_order = .N), by = .(group, stream, region, gradient)]
 # visual_sum <- merge(visual_sum, total_orders, by = c("group", "stream", "region", "gradient"))
 # visual_sum[, proportion := sum_order / total_order]
-
-rm(gradient1, gradient2, gradient3)
 ```
 
 ```{r}
-setwd("../data/gradient_data/")
+setwd("data/")
 
-min_dist_g1 <- fread("min_distance_gradient1.txt")
-min_dist_g1$group <- group
-min_dist_g1 <- min_dist_g1[, subject := seq(1, length(.I))]
-min_dist_g1$gradient <- "gradient 1"
+all_dist <- readRDS("minimum_distances.RDS")
 
-min_dist_g2 <- fread("min_distance_gradient2.txt")
-min_dist_g2$group <- group
-min_dist_g2 <- min_dist_g2[, subject := seq(1, length(.I))]
-min_dist_g2$gradient <- "gradient 2"
-
-min_dist_g3 <- fread("min_distance_gradient3.txt")
-min_dist_g3$group <- group
-min_dist_g3 <- min_dist_g3[, subject := seq(1, length(.I))]
-min_dist_g3$gradient <- "gradient 3"
-
-
-all_dist <- rbind(min_dist_g1, min_dist_g2, min_dist_g3)
-
-all_dist_long <- melt(all_dist, id.vars = c("subject", "group", "gradient"), 
-                measure.vars = c("V1", "V2", "V3", "V4"))
-
-all_dist_long <- all_dist_long[, .(mean_score = mean(value)), 
-                   by = .(subject, variable, group, gradient)]
+# min_dist_g1 <- fread("min_distance_gradient1.txt")
+# min_dist_g1$group <- group
+# min_dist_g1 <- min_dist_g1[, subject := seq(1, length(.I))]
+# min_dist_g1$gradient <- "gradient 1"
+# 
+# min_dist_g2 <- fread("min_distance_gradient2.txt")
+# min_dist_g2$group <- group
+# min_dist_g2 <- min_dist_g2[, subject := seq(1, length(.I))]
+# min_dist_g2$gradient <- "gradient 2"
+# 
+# min_dist_g3 <- fread("min_distance_gradient3.txt")
+# min_dist_g3$group <- group
+# min_dist_g3 <- min_dist_g3[, subject := seq(1, length(.I))]
+# min_dist_g3$gradient <- "gradient 3"
+# 
+# 
+# all_dist <- rbind(min_dist_g1, min_dist_g2, min_dist_g3)
+# 
+# all_dist_long <- melt(all_dist, id.vars = c("subject", "group", "gradient"), 
+#                 measure.vars = c("V1", "V2", "V3", "V4"))
+# 
+# all_dist_long <- all_dist_long[, .(mean_score = mean(value)), 
+#                    by = .(subject, variable, group, gradient)]
 
 
 # all_dist_long <- all_dist_long[, hemi := sapply(str_split(roi, "_"), `[`, 1)]
@@ -170,9 +175,12 @@ all_dist_long <- all_dist_long[, .(mean_score = mean(value)),
 
 ```{r}
 evc <- visual_dt[stream == "evc",]
-
 evc_sum <-
   evc[, .(mean_score = mean(mean_score)), by = .(group, region, gradient)]
+
+gradient_labels = c(gradient_1 = "Gradient 1",
+                    gradient_2 = "Gradient 2",
+                    gradient_3 = "Gradient 3")
 
 figure_a <- ggplot(evc_sum,
                   aes(
@@ -187,12 +195,13 @@ figure_a <- ggplot(evc_sum,
   scale_color_viridis(discrete = TRUE) +
   scale_fill_viridis(discrete = TRUE)  +
   mytheme +
-  facet_wrap(~ gradient, scales = "free")
-#figure_a
+  facet_wrap(~ gradient, scales = "free",
+             labeller = labeller(gradient = gradient_labels))
+figure_a
 
 ```
 
-## order
+## rank
 
 ```{r}
 figure_b <- ggplot(evc,
@@ -221,18 +230,18 @@ figure_b <- ggplot(evc,
   mytheme +
   xlab("group") +
   ylab("rank\n") +
-  facet_grid( ~ gradient)
-# figure_b
+  facet_grid( ~ gradient,
+             labeller = labeller(gradient = gradient_labels))
+figure_b
 
 ```
 
 ## minimum distance
 
 ```{r}
-min_dist_g1_long <- melt(min_dist_g1, id.vars = c("group", "subject", "gradient"),
-                         value.name = "distance",
-                         variable.name = "roi")
+min_dist_g1_long <- all_dist[gradient == "gradient 1",]
 min_dist_g1_long <- min_dist_g1_long[, log_score := log(distance)]
+min_dist_g1_long$title <- "Gradient 1"
 
 fig_g1 <- create_violin_boxplot(
   data = min_dist_g1_long,
@@ -246,9 +255,7 @@ fig_g1 <- create_violin_boxplot(
   color_colors = c(SC = "#440154", CB = "#43BF71")
 )
 
-min_dist_g2_long <- melt(min_dist_g2, id.vars = c("group", "subject", "gradient"),
-                         value.name = "distance",
-                         variable.name = "roi")
+min_dist_g2_long <- all_dist[gradient == "gradient 2",]
 min_dist_g2_long <- min_dist_g2_long[, log_score := log(distance)]
 
 fig_g2 <- create_violin_boxplot(
@@ -263,9 +270,7 @@ fig_g2 <- create_violin_boxplot(
   color_colors = c(SC = "#440154", CB = "#43BF71")
 )
 
-min_dist_g3_long <- melt(min_dist_g3, id.vars = c("group", "subject", "gradient"),
-                         value.name = "distance",
-                         variable.name = "roi")
+min_dist_g3_long <- all_dist[gradient == "gradient 3",]
 min_dist_g3_long <- min_dist_g3_long[, log_score := log(distance)]
 
 fig_g3 <- create_violin_boxplot(
@@ -301,7 +306,7 @@ all_figs <- ggarrange(figure_a,
 
 #all_figs
 
-setwd('../publications/manuscript/figures')
+setwd('../figures')
   
 tiff("figure_dist.tiff",
      height = 30, width = 26, units = "cm",
@@ -322,10 +327,14 @@ model_g1 <- mixed(log(distance) ~ group*roi + (1|subject),
 model_g1
 ```
 
+### EMMs
+
 ```{r}
 emm_int <- emmeans(model_g1, ~ group | roi, type = "response")
 emm_int
 ```
+
+### post-hoc tests
 
 ```{r}
 update(pairs(emm_int), adjust = "holm", by = NULL)
@@ -339,10 +348,14 @@ model_g2 <- mixed(log(distance) ~ group*roi + (1|subject),
 model_g2
 ```
 
+### EMMs
+
 ```{r}
 emm_in <- emmeans(model_g2, ~ group | roi, type = "response")
 emm_in
 ```
+
+### post-hoc tests
 
 ```{r}
 update(pairs(emm_in), adjust = "holm", by = NULL)
@@ -356,273 +369,15 @@ model_g3 <- mixed(log(distance) ~ group*roi + (1|subject),
 model_g3
 ```
 
+### EMMs
+
 ```{r}
 emm_int <- emmeans(model_g3, ~group | roi, type = "response")
 emm_int
 ```
 
+### post-hoc tests
+
 ```{r}
 update(pairs(emm_int), adjust = "holm", by = NULL)
-```
-
-# other plots
-
-```{r}
-evc_sum <- visual_sum[region %in% evc_regions,]
-plot_hierarchy <-
-  ggplot(evc_sum, aes(x = group, y = proportion, fill = region)) +
-  geom_bar(position = "stack", stat = "identity") +
-  facet_grid(gradient ~ order) +
-  scale_color_viridis(discrete = TRUE) +
-  scale_fill_viridis(discrete = TRUE)  +
-  mytheme
-
-```
-
-```{r}
-figure1 <- ggplot(evc,
-                  aes(x = region,
-                      y = order,
-                      color = group,
-                      fill = group)) +
- scale_fill_manual(values = c(SC = "#440154", CB = "#43BF71", LB = "#23888E")) +
-    scale_color_manual(values = c(SC = "#440154", CB = "#43BF71", LB = "#23888E")) +
-  geom_flat_violin(
-    aes(fill = group),
-    position = position_nudge(x = .25, y = 0),
-    adjust = 1.5,
-    trim = FALSE,
-    alpha = .5,
-    colour = NA
-  ) +
-  geom_boxplot(
-    aes(x = region, y = order, color = group),
-    position = position_dodge(width = 0.25),
-    outlier.shape = NA,
-    alpha = .5,
-    width = .2,
-    fill = "white"
-  ) +
-  mytheme +
-  xlab("") +
-  ylab("rank") +
-  facet_grid( ~ gradient)
-
-figure1
-```
-
-```{r}
-evc_wide <- dcast(evc, subject + group + gradient ~ region, value.var = "mean_score")
-# Calculate differences between all region combinations
-region_cols <- setdiff(names(evc_wide), c("subject", "group", "gradient"))
-combs <- combn(region_cols, 2, simplify = FALSE)
-
-for (comb in combs) {
-  col_name <- paste("diff", comb[2], comb[1], sep = "_")
-  evc_wide[, (col_name) := get(comb[2]) - get(comb[1])]
-}
-
-diff_long <- melt(evc_wide, 
-                  id.vars = c("subject", "gradient", "group"), 
-                  measure.vars = patterns("^diff_"), 
-                  variable.name = "comparison", 
-                  value.name = "diff_mean_score")
-
-
-
-figure1 <- ggplot(diff_long,
-                  aes(
-                    x = comparison,
-                    y = diff_mean_score,
-                    color = group,
-                    fill = group
-                  )) +
-  scale_fill_manual(values = c(
-    SC = "#440154",
-    CB = "#43BF71",
-    LB = "#23888E"
-  )) +
-  scale_color_manual(values = c(
-    SC = "#440154",
-    CB = "#43BF71",
-    LB = "#23888E"
-  )) +
-  geom_flat_violin(
-    aes(fill = group),
-    position = position_nudge(x = .25, y = 0),
-    adjust = 1.5,
-    trim = FALSE,
-    alpha = .5,
-    colour = NA
-  ) +
-  geom_boxplot(
-    aes(x = comparison, y = diff_mean_score, color = group),
-    position = position_dodge(width = 0.25),
-    outlier.shape = NA,
-    alpha = .5,
-    width = .2,
-    fill = "white"
-  ) +
-  mytheme +
-  xlab("") +
-  ylab("rank") +
-  facet_wrap(~ gradient, scales = "free") +
-  coord_flip()
-figure1
-
-setwd('../publications/manuscript/figures')
-  
-tiff("figure_rank2_1.tiff",
-     height = 10, width = 26, units = "cm",
-     compression = "lzw", res = 500, type = "cairo",
-     bg = "transparent")
-figure1
-dev.off()
-
-```
-
-```{r}
-ventral <- visual_dt[stream == "ventral" | stream == "evc",]
-ventral <- dcast(ventral, subject + group ~ region, value.var = "mean_score")
-
-cb <- ventral[group == "CB",  ]
-cb <- cb[, c("subject", "group", "stream") := NULL]
-
-corrplot(cor(cb))
-```
-
-```{r}
-sc <- ventral[group == "SC", ]
-sc <- sc[, c("subject", "group", "stream") := NULL]
-
-corrplot(cor(sc))
-```
-
-# dorsal stream - expected hierarchy
-
-V1, V2, V3, V3A, V3B, V6, V6A, V7, IPS
-
-```{r}
-dorsal <- visual_dt[stream == "dorsal" | stream == "evc",]
-dorsal$region <- ordered(dorsal$region, 
-                         levels = c("V1", "V2", "V3","V3A", "V3B", "V6", "V6A", "V7", "IPS1"))
-
-dorsal <- dcast(dorsal, subject + group ~ region, value.var = "mean_score")
-
-cb <- dorsal[group == "CB",  ]
-cb <- cb[, c("subject", "group", "stream") := NULL]
-
-corrplot(cor(cb))
-```
-
-```{r}
-sc <- dorsal[group == "SC",  ]
-sc <- sc[, c("subject", "group", "stream") := NULL]
-
-corrplot(cor(sc))
-```
-
-```{r}
-result <- visual_dt[, {
-  combinations <- combn(unique(region), 2, simplify = FALSE)
-  differences <- lapply(combinations, function(x) {
-    diff <- mean_score[region == x[1]] - mean_score[region == x[2]]
-    data.table(region1 = x[1], region2 = x[2], distance = diff)
-  })
-  rbindlist(differences)
-}, by = .(subject, group)]
-```
-
-```{r}
-model_all <- mixed(distance ~region1*group + (1|subject),
-                   data = result)
-model_all
-```
-
-```{r}
-emm_groupxroi <- emmeans(model_all, ~ region1 | group)
-emm_groupxroi
-```
-
-# EVC
-
-experted hierarchy: V1, V2, V3/V4
-
-```{r}
-evc <- visual_sum[stream == "evc",]
-plot_hierarchy <- ggplot(evc, aes(x = group, y = proportion, fill = region)) +
-  geom_bar(position = "stack", stat = "identity") +
-  facet_wrap(~order)
-plot_hierarchy
-```
-
-```{r}
-evc <- visual_dt[stream == "evc",]
-
-model_evc <- mixed(mean_score ~ group*region + (1|subject),
-                   data = evc)
-model_evc
-
-# evc_w <- dcast(evc, subject + group ~ region, value.var = "order")
-# 
-# # Separate the data by group
-# cb_data <- evc_w %>% filter(group == "CB")
-# sc_data <- evc_w %>% filter(group == "SC")
-# 
-# # Flatten the data
-# cb_orders <- unlist(cb_data[, -c("subject", "group")])
-# sc_orders <- unlist(sc_data[, -c("subject", "group")])
-# 
-# # Calculate Kendall's Tau
-# tau <- cor(cb_orders, sc_orders, method = "kendall")
-# print(paste("Kendall's Tau:", tau))
-# 
-# # Calculate Spearman's Rank Correlation
-# spearman <- cor(cb_orders, sc_orders, method = "spearman")
-# print(paste("Spearman's Rank Correlation:", spearman))
-```
-
-```{r}
-emm_groupxroi <- emmeans(model_evc, ~ region | group)
-emm_groupxroi
-```
-
-```{r}
-update(pairs(emm_groupxroi), adjust = "holm")
-```
-
-```{r}
-ventral <- visual_dt[stream == "ventral",]
-
-model_ventral <- mixed(mean_score ~ group*region + (1|subject),
-                   data = ventral)
-model_ventral
-```
-
-```{r}
-emm_groupxroi <- emmeans(model_ventral, ~ region | group)
-emm_groupxroi
-```
-
-```{r}
-update(pairs(emm_groupxroi), adjust = "holm")
-```
-
-# Ventral stream
-
-Expected hierarchy:
-
-```{r}
-ventral <- visual_sum[stream == "ventral",]
-plot_hierarchy <- ggplot(ventral, aes(x = group, y = proportion, fill = region)) +
-  geom_bar(position = "stack", stat = "identity") +
-  facet_wrap(~order)
-plot_hierarchy
-```
-
-```{r}
-dorsal <- visual_dt[stream == "dorsal",]
-plot_hierarchy <- ggplot(dorsal, aes(x = order, y = subject, color = region)) +
-  geom_point()
-plot_hierarchy
 ```

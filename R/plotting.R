@@ -1,27 +1,27 @@
-# mytheme <- theme_bw() +
-#   theme(
-#     panel.grid.minor.y = element_blank(),
-#     panel.grid.minor.x = element_blank(),
-#     # panel.grid.major.x = element_blank(),
-#     panel.border = element_blank(),
-#     axis.line = element_line(),
-#     text = element_text(size = 12, family = "Calibri Light"),
-#     strip.background = element_rect(colour = "white", fill = "white"),
-#     plot.title = element_text(vjust = 0.9, size = 18),
-#     axis.title.y = element_text(
-#       vjust = 0.1,
-#       size = 12,
-#       margin = margin(
-#         t = 0,
-#         r = 10,
-#         b = 0,
-#         l = 0
-#       )
-#     ),
-#     axis.text.y = element_text(size = 12),
-#     axis.text.x = element_text(size = 12),
-#     legend.title = element_blank()
-#   )
+mytheme <- theme_bw() +
+  theme(
+    panel.grid.minor.y = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    #panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.line = element_line(),
+    text = element_text(size = 12, family = "Calibri Light"),
+    strip.background = element_rect(colour = "white", fill = "white"),
+    plot.title = element_text(vjust = 0.9, size = 18),
+    axis.title.y = element_text(
+      vjust = 0.1,
+      size = 12,
+      margin = margin(
+        t = 0,
+        r = 10,
+        b = 0,
+        l = 0
+      )
+    ),
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    legend.title = element_blank()
+  )
 
 create_violin_boxplot <- function(data, x_var, y_var, color_var, theme, x_label, y_label, fill_colors, color_colors) {
   ggplot(data, aes_string(x = x_var, y = y_var, color = color_var, fill = color_var)) +
