@@ -16,10 +16,194 @@ library(ggpubr)
 library(afex)
 library(emmeans)
 library(extrafont)
+library(tidytext)
+library(cowplot)
 
 source("R/utils.R")
 source("R/plotting.R")
 source("R/rainclouds.R")
+```
+
+# canonical hierarchy
+
+```{r}
+canonical <- c("V1", "V2", "V3", "V4")
+noncanonical <- c("V2", "V1", "V4", "V3")
+hierarchy <- data.table(id = 1:4, canonical, noncanonical)
+hierarchy<- melt(hierarchy, id.vars = "id", variable.name = "type", value.name = "value")
+
+plot_hierarchy <-
+  ggplot(hierarchy, aes(x = type, y = id, label = value)) +
+  geom_label(aes(color = value), size = 5) +
+  scale_color_viridis(discrete = TRUE) +
+  scale_fill_viridis(discrete = TRUE) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  ggtitle("visual hierarchy") +
+  xlab(element_blank()) +
+  ylab(element_blank()) +
+  theme(text = element_text(size = 8, family = "Calibri Light"),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.y = element_blank())
+plot_hierarchy
+```
+
+# bootstrap
+
+```{r}
+bootstrap_df <- fread("../data_raw/btsrp_for_fig.csv")
+
+bootstrap_df$Group <- as_factor(bootstrap_df$Group)
+bootstrap_df$Order <- as_factor(bootstrap_df$Order)
+bootstrap_df$Gradient <- as_factor(bootstrap_df$Gradient)
+bootstrap_df[, percent := Frequency/100, by = .(Group, Gradient)]
+
+sc_g1_df <- bootstrap_df[Gradient == "G1" & Group == "SC",]
+setorder(sc_g1_df, percent)
+sc_g1_df[, Order := factor(Order, levels = unique(Order))]
+cb_g1_df <- bootstrap_df[Gradient == "G1" & Group == "CB",]
+cb_g1_df[, Order := factor(Order, levels = unique(sc_g1_df$Order))]
+sc_g1_df[, Order := factor(Order, levels = unique(Order))] # Ensure that the factor variable is set correctly in sc_g3_df
+ordered_levels <- levels(sc_g1_df$Order) # Extract the levels from sc_g3_df
+cb_g1_df[, Order := factor(Order, levels = ordered_levels)] # Apply the same levels to cb_g3_df
+g1_df <- rbind(sc_g1_df, cb_g1_df)
+g1_df <- g1_df[percent >= 1,]
+
+g1_plot <- create_lolli_plot2(g1_df, percent, Order, "Gradient 1", c(SC = "#440154", CB = "#43BF71")) +
+  ylab("Order\n")
+
+sc_g2_df <- bootstrap_df[Gradient == "G2" & Group == "SC",]
+setorder(sc_g2_df, percent)
+sc_g2_df[, Order := factor(Order, levels = unique(Order))]
+cb_g2_df <- bootstrap_df[Gradient == "G2" & Group == "CB",]
+cb_g2_df[, Order := factor(Order, levels = unique(sc_g2_df$Order))]
+sc_g2_df[, Order := factor(Order, levels = unique(Order))] # Ensure that the factor variable is set correctly in sc_g3_df
+ordered_levels <- levels(sc_g2_df$Order) # Extract the levels from sc_g3_df
+cb_g2_df[, Order := factor(Order, levels = ordered_levels)] # Apply the same levels to cb_g3_df
+g2_df <- rbind(sc_g2_df, cb_g2_df)
+g2_df <- g2_df[percent >= 1,]
+
+g2_plot <- create_lolli_plot2(g2_df, percent, Order, "Gradient 2", c(SC = "#440154", CB = "#43BF71"))
+
+sc_g3_df <- bootstrap_df[Gradient == "G3" & Group == "SC",]
+setorder(sc_g3_df, percent)
+sc_g3_df[, Order := factor(Order, levels = unique(Order))]
+cb_g3_df <- bootstrap_df[Gradient == "G3" & Group == "CB",]
+cb_g3_df[, Order := factor(Order, levels = unique(sc_g3_df$Order))]
+sc_g3_df[, Order := factor(Order, levels = unique(Order))] # Ensure that the factor variable is set correctly in sc_g3_df
+ordered_levels <- levels(sc_g3_df$Order) # Extract the levels from sc_g3_df
+cb_g3_df[, Order := factor(Order, levels = ordered_levels)] # Apply the same levels to cb_g3_df
+g3_df <- rbind(sc_g3_df, cb_g3_df)
+g3_df <- g3_df[percent >= 1,]
+
+g3_plot <- create_lolli_plot2(g3_df, percent, Order, "Gradient 3", c(SC = "#440154", CB = "#43BF71"))
+
+set_null_device(cairo_pdf)
+boot_row <- cowplot::plot_grid(
+  g1_plot + theme(legend.position = "none"),
+  g2_plot + theme(legend.position = "none") + ylab(""),
+  g3_plot + theme(legend.position = c(0.8, 0.1)) + ylab(""),
+  ncol = 3
+)
+boot_row
+
+```
+
+# single subject
+
+```{r}
+chisqr <- fread("../data_raw/ChiSquareTest_for_fig.csv")
+chisqr <- chisqr[Frequency > 0,]
+chisqr$Order <- as_factor(chisqr$Order)
+
+sc_g1_df <- chisqr[Gradient == "G1" & Group == "SC",]
+setorder(sc_g1_df, Frequency)
+sc_g1_df[, Order := factor(Order, levels = unique(Order))]
+cb_g1_df <- chisqr[Gradient == "G1" & Group == "CB",]
+cb_g1_df[, Order := factor(Order, levels = unique(sc_g1_df$Order))]
+sc_g1_df[, Order := factor(Order, levels = unique(Order))] # Ensure that the factor variable is set correctly in sc_g3_df
+ordered_levels <- levels(sc_g1_df$Order) # Extract the levels from sc_g3_df
+cb_g1_df[, Order := factor(Order, levels = ordered_levels)] # Apply the same levels to cb_g3_df
+g1_df <- rbind(sc_g1_df, cb_g1_df)
+g1_df <- g1_df[Frequency >= 1,]
+g1_df <- g1_df[!is.na(Order),]
+
+g1_plot <- create_lolli_plot2(g1_df, Frequency, Order, "", c(SC = "#440154", CB = "#43BF71")) +
+  ylab("Order\n")
+
+sc_g2_df <- chisqr[Gradient == "G2" & Group == "SC",]
+setorder(sc_g2_df, Frequency)
+sc_g2_df[, Order := factor(Order, levels = unique(Order))]
+cb_g2_df <- chisqr[Gradient == "G2" & Group == "CB",]
+cb_g2_df[, Order := factor(Order, levels = unique(sc_g2_df$Order))]
+sc_g2_df[, Order := factor(Order, levels = unique(Order))] # Ensure that the factor variable is set correctly in sc_g3_df
+ordered_levels <- levels(sc_g2_df$Order) # Extract the levels from sc_g3_df
+cb_g2_df[, Order := factor(Order, levels = ordered_levels)] # Apply the same levels to cb_g3_df
+g2_df <- rbind(sc_g2_df, cb_g2_df)
+g2_df <- g2_df[Frequency >= 1,]
+g2_df <- g2_df[!is.na(Order),]
+
+g2_plot <- create_lolli_plot2(g2_df, Frequency, Order, "", c(SC = "#440154", CB = "#43BF71"))
+
+sc_g3_df <- chisqr[Gradient == "G3" & Group == "SC",]
+setorder(sc_g3_df, Frequency)
+sc_g3_df[, Order := factor(Order, levels = unique(Order))]
+cb_g3_df <- chisqr[Gradient == "G3" & Group == "CB",]
+cb_g3_df[, Order := factor(Order, levels = unique(sc_g3_df$Order))]
+sc_g3_df[, Order := factor(Order, levels = unique(Order))] # Ensure that the factor variable is set correctly in sc_g3_df
+ordered_levels <- levels(sc_g3_df$Order) # Extract the levels from sc_g3_df
+cb_g3_df[, Order := factor(Order, levels = ordered_levels)] # Apply the same levels to cb_g3_df
+g3_df <- rbind(sc_g3_df, cb_g3_df)
+g3_df <- g3_df[Frequency >= 1,]
+g3_df <- g3_df[!is.na(Order),]
+
+g3_plot <- create_lolli_plot2(g3_df, Frequency, Order, "", c(SC = "#440154", CB = "#43BF71"))
+
+chiq_row <- cowplot::plot_grid(
+  g1_plot + theme(legend.position = "none"),
+  g2_plot + theme(legend.position = "none") + ylab(""),
+  g3_plot + ylab(""),
+  ncol = 3
+)
+chiq_row
+
+```
+
+# Figure 3
+
+```{r}
+fig_3 <- ggarrange(
+  plot_hierarchy,
+  ggarrange(
+    boot_row,
+    chiq_row,
+    ncol = 1,
+    align = "v",
+    labels = c("B", "C")
+  ),
+  ncol = 2,
+  widths = c(1, 3),
+  labels = c("A", "")
+)
+
+setwd('../figures')
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(
+  fig_3,
+  filename = "figure_3.pdf",
+  device = cairo_pdf,
+  height = 10,
+  width = 16.5,
+  units = "cm",
+  bg = "transparent",
+  dpi = "print"
+)
 ```
 
 ```{r}
@@ -28,9 +212,10 @@ setwd("../data_tidy/")
 dt_long <- readRDS("gradients.RDS")
 dt_long <- dt_long[, .(mean_score = mean(gradient_score)),
                    by = .(subject, region, group, gradient, yeo, stream)]
+dt_long$group <- factor(dt_long$group, levels = c("SC", "CB"))
 
 visual_dt <- dt_long[!is.na(stream),]
-visual_dt[, order := rank(-mean_score), by = .(subject, stream, group, gradient)]
+visual_dt[, order := rank(mean_score), by = .(subject, stream, group, gradient)]
 
 visual_sum <- visual_dt[, .(sum_order = length(.I)),
                         by = .(group, stream, order, region, gradient)]
@@ -44,72 +229,7 @@ all_dist <- readRDS("minimum_distances.RDS")
 
 # visual hierarchy
 
-## hierarchy
-
-```{r}
-evc <- visual_dt[stream == "evc",]
-evc_sum <-
-  evc[, .(mean_score = mean(mean_score)), by = .(group, region, gradient)]
-
-gradient_labels = c(gradient_1 = "Gradient 1",
-                    gradient_2 = "Gradient 2",
-                    gradient_3 = "Gradient 3")
-
-figure_a <- ggplot(evc_sum,
-                  aes(
-                    x = group,
-                    y = mean_score,
-                    fill = region,
-                    colour = region
-                  )) +
-  geom_point(shape = "-",
-             size = 15) +
-  ylab("mean gradient scores\n") +
-  scale_color_viridis(discrete = TRUE) +
-  scale_fill_viridis(discrete = TRUE)  +
-  mytheme +
-  facet_wrap(~ gradient, scales = "free",
-             labeller = labeller(gradient = gradient_labels))
-figure_a
-
-```
-
-## rank
-
-```{r}
-figure_b <- ggplot(evc,
-                  aes(x = group,
-                      y = order,
-                      color = region,
-                      fill = region)) +
-  geom_flat_violin(
-    aes(fill = region),
-    position = position_nudge(x = .25, y = 0),
-    adjust = 1.5,
-    trim = FALSE,
-    alpha = .5,
-    colour = NA
-  ) +
-  geom_boxplot(
-    aes(x = group, y = order, color = region),
-    position = position_dodge(width = 0.25),
-    outlier.shape = NA,
-    alpha = .5,
-    width = .2,
-    fill = "white"
-  ) +
-  scale_color_viridis(discrete = TRUE) +
-  scale_fill_viridis(discrete = TRUE)  +
-  mytheme +
-  xlab("group") +
-  ylab("rank\n") +
-  facet_grid( ~ gradient,
-             labeller = labeller(gradient = gradient_labels))
-figure_b
-
-```
-
-## Figure 2
+## Figure 4B
 
 ```{r}
 min_dist_g1_long <- all_dist[gradient == "gradient 1",]
@@ -157,52 +277,6 @@ fig_g3 <- create_violin_boxplot(
   fill_colors = c(SC = "#440154", CB = "#43BF71"),
   color_colors = c(SC = "#440154", CB = "#43BF71")
 )
-
-all_figs <- ggarrange(figure_a,
-                      NULL,
-                      figure_b,
-                      NULL,
-                      ggarrange(fig_g1 + theme(legend.box.margin = margin(r = 20)),
-  fig_g2 + theme(
-    legend.box.margin = margin(r = 20)),
-  fig_g3 + theme(
-    legend.box.margin = margin(r = 20)), 
-  ncol = 3,
-  common.legend = TRUE,
-  legend = "right",
-  labels = c("C", "", "")),
-  ncol = 1,
-  labels = c("A", "", "B"),
-  heights = c(1, 0.15, 1, 0.15, 1),
-  align = "v"
-)
-
-setwd('../figures')
-
-cowplot::set_null_device(cairo_pdf)
-ggsave(
-  all_figs,
-  filename = "figure_2.pdf",
-  device = cairo_pdf,
-  height = 30,
-  width = 26,
-  units = "cm",
-  bg = "transparent",
-  dpi = "print"
-)
-  
-# tiff(
-#   "figure_dist.tiff",
-#   height = 30,
-#   width = 26,
-#   units = "cm",
-#   compression = "lzw",
-#   res = 500,
-#   type = "cairo",
-#   bg = "white"
-# )
-# all_figs
-# dev.off()
 
 ```
 
@@ -260,9 +334,11 @@ model_g3
 
 ### EMMs
 
-```{r}
+```{r paged.print=FALSE}
 emm_int <- emmeans(model_g3, ~group | roi, type = "response")
-emm_int
+emm_int_df <- summary(emm_int) %>%
+  data.table()
+emm_int_df
 ```
 
 ### post-hoc tests
