@@ -1,189 +1,668 @@
 ---
 title: "Connectivity gradients across neocortex"
-format: html
-editor: visual
 author: "Lena Stroh"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show the code"
+    toc: true
+    toc-depth: 3
+    embed-resources: true
+editor: source
+execute:
+  echo: false
+  warning: false
+knitr:
+  opts_chunk:
+    paged.print: false
 ---
 
 ```{r}
+#| label: Load libraries
 rm(list = ls(all = TRUE))
 
-library(broom)
 library(data.table)
-library(tidyverse)
-library(extrafont)
+library(ggplot2)
 library(ggsegGlasser)
 library(ggseg)
+library(dplyr)
+library(broom)
+library(afex)
+library(emmeans)
 
+# Load utility functions
 source("R/plotting.R")
-source("R/rainclouds.R")
-source("R/utils.R")
-setwd("data/")
-
-dt_long <- readRDS("gradients_df.RDS")
-
-df_wide <- dcast(dt_long,
-                 subject + group + region + age + sex + hemi + yeo ~ gradient,
-                 value.var = "gradient_score")
-
-dt_yeo <- dt_long %>%
-  expand(nesting(region, yeo))
 ```
 
 ```{r}
-cmap_yeo <- c("#781286", "#4682B4", "#00760E", "#C43AFA", "#DCF8A4", "#E69422", "#CD3E4E")
+#| label: Load data and specify fixed effects formula
+setwd("../data_tidy/")
+
+frame <- readRDS("gradients.RDS")
+fixed_effects <- "group + age + sex + site"
+```
+
+Projection of 7 functional networks defined by Yeo et al. on ROIs defined by Glasser et al.
+
+```{r}
+#| label: Plot yeo networks
+dt_yeo <- frame %>%
+  dplyr::distinct(region, yeo, hemi)
+
+cmap_yeo <- c(
+  visual = "#781286", 
+  sensorimotor = "#4682B4", 
+  'dorsal attention' = "#00760E", 
+  'ventral attention' = "#C43AFA",
+  limbic = "#DCF8A4", 
+  frontoparietal = "#E69422", 
+  'default mode' = "#CD3E4E"
+)
+
+dt_yeo$yeo <- plyr::revalue(dt_yeo$yeo, c(
+  "VN" = "visual", 
+  "SMN" = "sensorimotor", 
+  "DAN" = "dorsal attention",
+  "VAN" = "ventral attention",
+  "LN" = "limbic",
+  "FPN" = "frontoparietal",
+  "DMN" = "default mode"
+))
+
+dt_yeo$yeo <- factor(dt_yeo$yeo, levels = names(cmap_yeo))
 
 yeo_plot <- ggplot(data = dt_yeo) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = yeo)) +
+  geom_brain(
+    atlas = glasser(),
+    position = position_brain(view + hemi ~ ., views = c("lateral", "medial")),
+    aes(fill = yeo),
+    size = 0.05
+  ) +
   theme_void() +
-  theme(legend.position = "none") +
-  scale_fill_manual(values = cmap_yeo) +
-  scale_color_manual(values = cmap_yeo)
-yeo_plot
+  scale_fill_manual(values = cmap_yeo, name = "") +
+  theme(legend.key.size = unit(0.25, 'cm'))
+
+print(yeo_plot)
 ```
 
-```{r}
-dt_region <- dt_long[, .(centroid = mean(gradient_score)), by = .(yeo, subject, group, gradient, region)]
-
-gradient_labels <- c(gradient_1 = "Gradient 1",
-                     gradient_2 = "Gradient 2",
-                     gradient_3 = "Gradient 3")
-
-grad_plot <- ggplot(dt_region, aes(x = centroid, y = yeo, fill = yeo, color = yeo, alpha = group)) +
-  ggridges::geom_density_ridges(scale = 2, show.legend = FALSE) +
-  theme_minimal() +
-  theme(panel.grid = element_blank()) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  xlab("gradient score") +
-  ylab(element_blank()) +
-  scale_alpha_manual(values = c(CB = 0.4, SC = 0.8)) +
-  scale_fill_manual(values = cmap_yeo) +
-  scale_color_manual(values = cmap_yeo) +
-  facet_wrap(~ gradient, scales = "free_x",
-             labeller = labeller(gradient = gradient_labels)) +
-  theme(legend.position = "none")
-grad_plot
-```
+Distribution of gradient values across G1 and G2 in the groups of blind and sighted individuals.
 
 ```{r}
-sum_group <- dt_long[, .(mean_grad = mean(gradient_score)), by = .(group, yeo, region, gradient)]
+cmap_yeo <- c(
+  VN = "#781286",
+  SMN = "#4682B4",
+  DAN = "#00760E",
+  VAN = "#C43AFA",
+  LN = "#DCF8A4",
+  FPN = "#E69422",
+  DMN = "#CD3E4E"
+)
+
+sum_group <- frame[, .(mean_grad = mean(gradient_score)), by = .(group, yeo, region, gradient)]
 sum_group_w <- dcast(sum_group, group + region + yeo ~ gradient, value.var = "mean_grad")
 
-grad_plot12 <- create_grad_plot(sum_group_w, gradient_1, gradient_2, "Gradient 1", "Gradient 2")
+grad_plot12 <- create_grad_plot(sum_group_w, gradient_1, gradient_2, "Gradient 1", "Gradient 2") +
+  labs(title = "Gradient scores for G1 and G2")  +
+  theme(plot.title = element_text(size = 8, margin = margin(0,0,0,0)))
 grad_plot12
 ```
 
-```{r}
-grad_plot13 <- create_grad_plot(sum_group_w, gradient_1, gradient_3, "Gradient 1", "Gradient 3")
+Distribution of gradient values across G1 and G3 in the groups of blind and sighted individuals.
+
+```{r figure 1C}
+grad_plot13 <- create_grad_plot(sum_group_w, gradient_1, gradient_3, "Gradient 1", "Gradient 3") +
+  labs(title = "Gradient scores for G1 and G3")  +
+  theme(plot.title = element_text(size = 8, margin = margin(0,0,0,0)))
 grad_plot13
 ```
 
-# group differences - gradient 1
+# Connectivity gradients across neocortex
+
+## ROI analyses
 
 ```{r paged.print = FALSE}
-sum_group <- dt_long[, .(mean_grad = mean(gradient_score)), by = .(group, yeo, region, gradient)]
-sum_group_w <- dcast(sum_group, group + region + yeo ~ gradient, value.var = "mean_grad")
-
-stats_error <- dt_long %>%
+stats_lm <- frame %>%
   group_by(region, hemi, yeo, gradient, stream) %>%
-  do(tidy(t.test(gradient_score ~ group, data = .))) %>%
-  dplyr::select(estimate, parameter, statistic, p.value) %>%
+  do({
+    model <- lm(as.formula(paste("gradient_score ~", fixed_effects)), data = .)
+    tidy(model) %>%
+      filter(grepl("^group", term)) # Extract group coefficient
+  }) %>%
   ungroup() %>%
+  rename(
+    coefficient = estimate,
+    statistic = statistic
+  )
+
+# Apply FDR correction per gradient
+stats_corrected <- stats_lm %>%
   group_by(gradient) %>%
   mutate(p_adjust = p.adjust(p.value, method = "fdr")) %>%
-  dplyr::filter(p_adjust < 0.05) %>%
-  mutate_if(is.numeric, round, digits = 3) %>%
-  mutate(region = factor(region)) %>%
-  arrange(yeo)
+  ungroup() %>%
+  filter(p_adjust < 0.05)
 
-diff_regions <- sum_group %>%
-  left_join(stats_error, by = c("region", "yeo", "gradient")) %>%
-  dplyr::filter(!is.na(estimate))
+# extract min and max for plotting
+min_val <- min(stats_corrected$statistic)
+max_val <- max(stats_corrected$statistic)
 
-stats_g1 <- stats_error %>%
+stats_g1 <- stats_corrected %>%
   dplyr::filter(gradient == "gradient_1") %>%
   arrange(yeo, stream) %>%
-  print(n = 100)
+  mutate_if(is.numeric, round, digits = 3) %>%
+  mutate(across(c(p.value, p_adjust), ~ ifelse(. < 0.001, "< 0.001", as.character(.)))) %>%
+  select(-gradient, -term) %>%
+  rename("p (uncorr)" = p.value, "p (corr)" = p_adjust) 
 
-setwd("../results")
-write.csv(stats_g1, "stats_g1.csv", row.names = FALSE)
+write.csv(stats_g1, "../results/table_s01.csv", row.names = FALSE)
 ```
 
-```{r}
-diff_regions_g1 <- right_join(sum_group_w, stats_g1, by = c("region", "yeo"))
-group_diff_g1_plot <- create_diff_plot(sum_group_w, gradient_1, gradient_2, diff_regions_g1, "Gradient 1", "Gradient 2")
-group_diff_g1_plot
-```
+### Gradient 1
 
 ```{r}
-group_diff_g1_plot2 <- create_diff_plot2(sum_group[gradient == "gradient_1", ], diff_regions[gradient == "gradient_1", ], "gradient score G1")
-group_diff_g1_plot2
+# We use the original data for plotting, just for visualization purposes
+sum_group <- frame[, .(mean_grad = mean(gradient_score, na.rm = TRUE)),
+                     by = .(group, yeo, region, gradient, hemi, stream)]
+
+gradient1_df <- sum_group %>%
+  filter(gradient == "gradient_1") %>%
+  group_by(group)
+
+g1_plot3 <-
+  ggplot(gradient1_df) +
+  geom_brain(atlas = glasser(),
+             position = position_brain(. ~ hemi + view, views = c("lateral", "medial")),
+             aes(fill = mean_grad)) +
+  scale_fill_gradientn(colors = c("blue", "grey", "red"),
+                       name = "gradient\nscore") +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  facet_grid(factor(group, levels = c("SC", "CB")) ~., switch = "y")
+g1_plot3
 ```
 
+Results of the region-wise comparison of the gradient scores between groups of sighted and blind individuals (results were corrected for multiple comparisons with FDR at p \< .05).
+
 ```{r}
-group_diff_g1_plot3 <- create_diff_plot3(diff_regions[gradient == "gradient_1", ])
+group_diff_g1_plot3 <- create_diff_plot3(stats_g1, min_val, max_val, "Gradient 1")
 group_diff_g1_plot3
 ```
 
-# group differences - gradient 2
+### Gradient 2
 
-```{r paged.print = FALSE}
-stats_g2 <- stats_error %>%
+```{r}
+stats_g2 <- stats_corrected %>%
   dplyr::filter(gradient == "gradient_2") %>%
   arrange(yeo, stream) %>%
-  print(n = 300)
+  mutate_if(is.numeric, round, digits = 3) %>%
+  mutate(across(c(p.value, p_adjust), ~ ifelse(. < 0.001, "< 0.001", as.character(.)))) %>%
+  select(-gradient, -term) %>%
+  rename("p (uncorr)" = p.value, "p (corr)" = p_adjust) 
 
-setwd("../results")
-write.csv(stats_g2, "stats_g2.csv", row.names = FALSE)
+write.csv(stats_g2, "../results/table_s02.csv", row.names = FALSE)
 ```
 
 ```{r}
-diff_regions_g2 <- right_join(sum_group_w, stats_g2, by = c("region", "yeo"))
-group_diff_g2_plot <- create_diff_plot(sum_group_w, gradient_1, gradient_2, diff_regions_g2, "Gradient 1", "Gradient 2")
-group_diff_g2_plot
+gradient2_df <- sum_group %>%
+  filter(gradient == "gradient_2") %>%
+  group_by(group)
+
+g2_plot3 <-
+  ggplot(gradient2_df) +
+  geom_brain(atlas = glasser(),
+             position = position_brain(. ~ hemi + view, views = c("lateral", "medial")),
+             aes(fill = mean_grad)) +
+  scale_fill_gradientn(colors = c("blue", "grey", "red"),
+                       name = "gradient\nscore") +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  facet_grid(factor(group, levels = c("SC", "CB")) ~., switch = "y")
+g2_plot3
 ```
 
-```{r}
-group_diff_g2_plot2 <- create_diff_plot2(sum_group[gradient == "gradient_2", ], diff_regions[gradient == "gradient_2", ], "gradient score G2")
-group_diff_g2_plot2
-```
+Results of the region-wise comparison of the gradient scores between groups of sighted and blind individuals (results were corrected for multiple comparisons with FDR at p \< .05).
 
 ```{r}
-group_diff_g2_plot3 <- create_diff_plot3(diff_regions[gradient == "gradient_2", ])
+group_diff_g2_plot3 <- create_diff_plot3(stats_g2, min_val, max_val, "Gradient 2")
 group_diff_g2_plot3
 ```
 
-# group differences - gradient 3
+### Gradient 3
 
-```{r paged.print=FALSE}
-stats_g3 <- stats_error %>%
+```{r}
+stats_g3 <- stats_corrected %>%
   dplyr::filter(gradient == "gradient_3") %>%
   arrange(yeo, stream) %>%
-  print(n = 300)
+  mutate_if(is.numeric, round, digits = 3) %>%
+  mutate(across(c(p.value, p_adjust), ~ ifelse(. < 0.001, "< 0.001", as.character(.)))) %>%
+  select(-gradient, -term) %>%
+  rename("p (uncorr)" = p.value, "p (corr)" = p_adjust) 
 
-setwd("../results")
-write.csv(stats_g3, "stats_g3.csv", row.names = FALSE)
+write.csv(stats_g3, "../results/table_s03.csv", row.names = FALSE)
 ```
 
 ```{r}
-diff_regions_g3 <- right_join(sum_group_w, stats_g3, by = c("region", "yeo"))
-group_diff_g3_plot <- create_diff_plot(sum_group_w, gradient_1, gradient_3, diff_regions_g3, "Gradient 1", "Gradient 3")
-group_diff_g3_plot
+gradient3_df <- sum_group %>%
+  filter(gradient == "gradient_3") %>%
+  group_by(group)
+
+g3_plot3 <-
+  ggplot(gradient3_df) +
+  geom_brain(atlas = glasser(),
+             position = position_brain(. ~ hemi + view, views = c("lateral", "medial")),
+             aes(fill = mean_grad)) +
+  scale_fill_gradientn(colors = c("blue", "grey", "red"),
+                       name = "gradient\nscore") +
+  theme_void() +
+  theme(legend.key.height = unit(0.5, "cm")) +
+  theme(legend.key.width = unit(0.25, "cm")) +
+  theme(text = element_text(size = 12, family = "Calibri Light")) +
+  facet_grid(factor(group, levels = c("SC", "CB")) ~., switch = "y")
+g3_plot3
 ```
 
-```{r}
-group_diff_g3_plot2 <- create_diff_plot2(sum_group[gradient == "gradient_3", ], diff_regions[gradient == "gradient_3", ], "gradient score G2")
-group_diff_g3_plot2
-```
+Results of the region-wise comparison of the gradient scores between groups of sighted and blind individuals (results were corrected for multiple comparisons with FDR at p \< .05).
 
 ```{r}
-group_diff_g3_plot3 <- create_diff_plot3(diff_regions[gradient == "gradient_3", ])
+group_diff_g3_plot3 <- create_diff_plot3(stats_g3, min_val, max_val, "Gradient 3")
 group_diff_g3_plot3
 ```
 
-# Figure 1
+## Community-based profiles
+
+To summarise the findings from the ROI analysis, we applied a well-established functional community decomposition (see Methods). Then we conducted a network-based z-score analysis of gradient scores for each of the first three gradients.
+
+### Gradient 1
+
+Distribution of the gradient scores for each of the 7 functional networks (transparent distribution: group of blind individuals, non-transparent distribution: group of sighted controls). The tick below the density plots represents the mean gradient score.
+
+```{r}
+sum_community <- frame[, .(mean_grad = median(gradient_score)),
+                         by = .(subject, group, yeo, gradient, age, sex, site)]
+
+gradient_1 <- sum_community[gradient == "gradient_1", ]
+
+grad1_plot <- create_dist_plot(gradient_1)
+grad1_plot
+```
+
+Results of the network-based z-score analysis of gradient scores.
+
+```{r paged.print = FALSE, warning=FALSE}
+sum_community <- frame[, .(mean_grad = mean(gradient_score)), 
+                         by = .(subject, group, yeo, gradient, age, sex, site)]
+
+community_g1 <- sum_community[gradient == "gradient_1", ]
+
+model1 <- mixed(as.formula(paste("mean_grad ~ yeo * ", fixed_effects, "+ (1|subject)")), data = community_g1)
+model1
+
+```
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+
+setwd("../results")
+write.csv(emm_int_df, "table_s04.csv", row.names = FALSE)
+```
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+
+setwd("../results")
+write.csv(post_emm_int, "table_s05.csv", row.names = FALSE)
+```
+
+```{r}
+grad1_lolli_plot <- create_lolli_plot(post_emm_int, t.ratio, yeo, cmap_yeo)
+grad1_lolli_plot
+```
+
+### Gradient 2
+
+Distribution of the gradient scores for each of the 7 functional networks (transparent distribution: group of blind individuals, non-transparent distribution: group of sighted controls). The tick below the density plots represents the mean gradient score.
+
+```{r}
+gradient_2 <- sum_community[gradient == "gradient_2", ]
+
+grad2_plot <- create_dist_plot(gradient_2)
+grad2_plot
+```
+
+Results of the network-based z-score analysis of gradient scores.
+
+```{r paged.print = FALSE, warning=FALSE}
+community_g2 <- sum_community[gradient == "gradient_2", ]
+
+model1 <- mixed(as.formula(paste("mean_grad ~ yeo * ", fixed_effects, "+ (1|subject)")), data = community_g2)
+model1
+```
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+
+setwd("../results")
+write.csv(emm_int_df, "table_s06.csv", row.names = FALSE)
+```
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+
+setwd("../results")
+write.csv(post_emm_int, "table_s07.csv", row.names = FALSE)
+```
+
+Group differences in the mean gradient scores across 7 functional networks. Significant differences are shown with full color, whereas non-significant differences are shown with transparent color.
+
+```{r}
+grad2_lolli_plot <- create_lolli_plot(post_emm_int, t.ratio, yeo, cmap_yeo)
+grad2_lolli_plot
+```
+
+### Gradient 3
+
+Distribution of the gradient scores for each of the 7 functional networks (transparent distribution: group of blind individuals, non-transparent distribution: group of sighted controls). The tick below the density plots represents the mean gradient score.
+
+```{r}
+gradient_3 <- sum_community[gradient == "gradient_3", ]
+
+grad3_plot <- create_dist_plot(gradient_3)
+grad3_plot
+```
+
+Results of the network-based z-score analysis of gradient scores.
+
+```{r paged.print = FALSE, warning=FALSE}
+community_g3 <- sum_community[gradient == "gradient_3", ]
+
+model1 <- mixed(as.formula(paste("mean_grad ~ yeo * ", fixed_effects, "+ (1|subject)")), data = community_g3)
+model1
+```
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+
+setwd("../results")
+write.csv(emm_int_df, "table_s08.csv", row.names = FALSE)
+```
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+
+setwd("../results")
+write.csv(post_emm_int, "table_s09.csv", row.names = FALSE)
+```
+
+Group differences in the mean gradient scores across 7 functional networks. Significant differences are shown with full color, whereas non-significant differences are shown with transparent color.
+
+```{r}
+grad3_lolli_plot <- create_lolli_plot(post_emm_int, t.ratio, yeo, cmap_yeo)
+grad3_lolli_plot
+```
+
+## Between-network distances
+
+### Gradient 1
+
+LMM Results
+
+```{r}
+# Calculate the mean gradient for yeo == "VN" for each subject and group
+vn_means <- gradient_1 %>%
+  filter(yeo == "VN") %>%
+  group_by(subject, group) %>%
+  summarise(vn_mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop')
+
+# Join the means with the original dataframe
+vn_distance <- gradient_1 %>%
+  group_by(subject, group, yeo, site, age, sex) %>%
+  summarise(mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop') %>%
+  left_join(vn_means, by = c("subject", "group")) %>%
+  mutate(diff_vn = abs(mean_grad - vn_mean_grad)) %>%
+  filter(yeo != "VN") %>%
+  ungroup()
+
+model1 <- mixed(as.formula(paste("diff_vn ~ yeo * ", fixed_effects, "+ (1|subject)")), data = vn_distance)
+model1
+```
+
+Estimated marginal means
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+
+setwd("../results")
+write.csv(emm_int_df, "table_s10.csv", row.names = FALSE)
+```
+
+Post-hoc tests
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+
+setwd("../results")
+write.csv(post_emm_int, "table_s11.csv", row.names = FALSE)
+```
+
+```{r paged.print=FALSE}
+vn_row <- data.frame(
+  contrast = "CB - SC",
+  yeo = " ",
+  estimate = NA,
+  SE = NA,
+  df = NA,
+  t.ratio = NA,
+  p.value = 1
+)
+
+post_df <- rbind(post_df, vn_row)
+post_df$yeo <- factor(post_df$yeo, levels = c(" ", "SMN", "DAN", "VAN", "LN",  "FPN", "DMN"))
+
+```
+
+Group differences in the distance between the visual and other functional networks. Significant differences are shown with full color, whereas non-significant differences are shown with transparent color.
+
+```{r}
+grad1_lolli <- create_lolli_plot(post_df, t.ratio, yeo, cmap_yeo)
+grad1_lolli
+```
+
+### Gradient 2
+
+LMM Results
+
+```{r}
+# Calculate the mean gradient for yeo == "VN" for each subject and group
+vn_means <- gradient_2 %>%
+  filter(yeo == "VN") %>%
+  group_by(subject, group) %>%
+  summarise(vn_mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop')
+
+# Join the means with the original dataframe
+vn_distance <- gradient_2 %>%
+  group_by(subject, group, yeo, site, age, sex) %>%
+  summarise(mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop') %>%
+  left_join(vn_means, by = c("subject", "group")) %>%
+  mutate(diff_vn = abs(mean_grad - vn_mean_grad)) %>%
+  filter(yeo != "VN") %>%
+  ungroup()
+
+model1 <- mixed(as.formula(paste(
+  "diff_vn ~ yeo * ", fixed_effects, "+ (1|subject)"
+)), data = vn_distance)
+model1
+```
+
+Estimated marginal means
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+
+setwd("../results")
+write.csv(emm_int_df, "table_s12.csv", row.names = FALSE)
+```
+
+Post-hoc tests
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+
+setwd("../results")
+write.csv(post_emm_int, "table_s13.csv", row.names = FALSE)
+```
+
+```{r paged.print=FALSE}
+vn_row <- data.frame(
+  contrast = "CB - SC",
+  yeo = " ",
+  estimate = NA,
+  SE = NA,
+  df = NA,
+  t.ratio = NA,
+  p.value = 1
+)
+
+post_df <- rbind(post_df, vn_row)
+post_df$yeo <- factor(post_df$yeo, levels = c(" ", "SMN", "DAN", "VAN", "LN",  "FPN", "DMN"))
+```
+
+Group differences in the distance between the visual and other functional networks. Significant differences are shown with full color, whereas non-significant differences are shown with transparent color.
+
+```{r}
+grad2_lolli <- create_lolli_plot(post_df, t.ratio, yeo, cmap_yeo)
+grad2_lolli
+```
+
+### Gradient 3
+
+LMM Results
+
+```{r}
+# Calculate the mean gradient for yeo == "VN" for each subject and group
+vn_means <- gradient_3 %>%
+  filter(yeo == "VN") %>%
+  group_by(subject, group) %>%
+  summarise(vn_mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop')
+
+# Join the means with the original dataframe
+vn_distance <- gradient_3 %>%
+  group_by(subject, group, yeo, site, age, sex) %>%
+  summarise(mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop') %>%
+  left_join(vn_means, by = c("subject", "group")) %>%
+  mutate(diff_vn = abs(mean_grad - vn_mean_grad)) %>%
+  filter(yeo != "VN") %>%
+  ungroup()
+
+model1 <- mixed(as.formula(paste(
+  "diff_vn ~ yeo * ", fixed_effects, "+ (1|subject)"
+)), data = vn_distance)
+model1
+```
+
+Estimated marginal means
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+
+setwd("../results")
+write.csv(emm_int_df, "table_s14.csv", row.names = FALSE)
+```
+
+Post-hoc tests
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+
+setwd("../results")
+write.csv(post_emm_int, "table_s15.csv", row.names = FALSE)
+```
+
+```{r paged.print=FALSE}
+vn_row <- data.frame(
+  contrast = "CB - SC",
+  yeo = " ",
+  estimate = NA,
+  SE = NA,
+  df = NA,
+  t.ratio = NA,
+  p.value = 1
+)
+
+post_df <- rbind(post_df, vn_row)
+post_df$yeo <- factor(post_df$yeo, levels = c(" ", "SMN", "DAN", "VAN", "LN",  "FPN", "DMN"))
+```
+
+Group differences in the distance between the visual and other functional networks. Significant differences are shown with full color, whereas non-significant differences are shown with transparent color.
+
+```{r}
+grad3_lolli <- create_lolli_plot(post_df, t.ratio, yeo, cmap_yeo)
+grad3_lolli
+```
+
+# Figure 2
 
 ```{r}
 cowplot::set_null_device(cairo_pdf)
@@ -193,73 +672,63 @@ legend <- cowplot::get_legend(grad_plot12 +
 
 first_row <-
   cowplot::plot_grid(
-    yeo_plot,
-    NULL,
+    yeo_plot + theme(legend.position = "none"),
     legend,
-    NULL,
     grad_plot12 + theme(legend.position = "none"),
-    labels = c("A", "", "", "", "C"),
-    label_size = 12,
-    rel_widths = c(1.25, 0.05, 0.5, 0.05, 2),
+    NULL,
+    grad_plot13 + theme(legend.position = "none"),
+    labels = c("A", "", "B", "", "C"),
+    label_size = 8,
+    rel_widths = c(0.25, 0.25, 1, 0.05, 1),
     ncol = 5
   )
 
-second_row <-
-  cowplot::plot_grid(
-    grad_plot,
-    NULL,
-    grad_plot13 + theme(legend.position = "none"),
-    labels = c("B", "", ""),
-    label_size = 12,
-    rel_widths = c(1.8, 0.05, 2),
-    ncol = 3
+legend <- cowplot::get_plot_component(group_diff_g1_plot3, "guide-box-bottom", return_all = TRUE)
+
+second_row <- cowplot::plot_grid(
+  group_diff_g1_plot3 + theme(legend.position = "none"),
+  group_diff_g2_plot3 + theme(legend.position = "none"), 
+  group_diff_g3_plot3 + theme(legend.position = "none"),
+  labels = c("D", "E", "F"),
+  label_size = 8,
+  hjust = 0,
+  ncol = 3
   )
 
 third_row <- cowplot::plot_grid(
-  group_diff_g1_plot3, NULL, group_diff_g1_plot2 + theme(legend.position = "none"), NULL, group_diff_g1_plot + theme(legend.position = "none"),
-  NULL, NULL, NULL, NULL, NULL,
-  group_diff_g2_plot3, NULL, group_diff_g2_plot2 + theme(legend.position = "none"), NULL, group_diff_g2_plot + theme(legend.position = "none"),
-  NULL, NULL, NULL, NULL, NULL,
-  group_diff_g3_plot3, NULL, group_diff_g3_plot2 + theme(legend.position = "none"), NULL, group_diff_g3_plot + theme(legend.position = "none"),
-  labels = c("D", "", "", "", "",
-             "", "", "", "", "",
-             "E", "", "", "", "",
-             "", "", "", "", "",
-             "F", "", "", "", ""),
-  label_size = 12,
-  rel_widths = c(1.25, 0.05, 0.5, 0.05, 2),
-  rel_heights = c(1, 0.05, 1, 0.05, 1),
-  ncol = 5,
-  align = "v")
+  NULL,
+  legend,
+  NULL,
+  ncol = 3,
+  rel_widths = c(1,1,1)
+)
 
 all_figs <- cowplot::plot_grid(
   first_row,
-  NULL,
   second_row,
-  NULL,
   third_row,
+  rel_heights = c(1, 1, 0.25),
   ncol = 1,
-  rel_heights = c(1, 0.05, 1, 0.05, 3)
+  align = "v"
 )
 
-setwd("../publications/figures")
+setwd("../figures")
 
-cowplot::set_null_device(cairo_pdf)
 ggsave(
   all_figs,
-  filename = "figure_1.pdf",
+  filename = "figure_2.pdf",
   device = cairo_pdf,
-  height = 30,
-  width = 25,
+  height = 10,
+  width = 16.5,
   units = "cm",
   bg = "transparent",
   dpi = "print"
 )
 
 tiff(
-  "figure_1.tiff",
-  height = 30,
-  width = 25,
+  "figure_2.tiff",
+  height = 10,
+  width = 16.5,
   units = "cm",
   compression = "lzw",
   res = 500,
@@ -270,204 +739,40 @@ all_figs
 dev.off()
 ```
 
-# Structure-Function Coupling
+# Figure 3
 
 ```{r}
-setwd("../data/")
-sfc <- fread("sfc.csv")
-glasser <- fread("gradient_data/glasser360NodeNames.txt", header = FALSE)
-sfc$roi <- glasser
-sfc[, hemi := sapply(str_split(roi, "_"), `[`, 1)]
-sfc[hemi == "Left", hemi := "left"]
-sfc[hemi == "Right", hemi := "right"]
-sfc[, region := sapply(str_split(roi, "_"), `[`, 2)]
-rm(glasser)
-```
+third_row <- cowplot::plot_grid(
+  NULL, NULL, NULL, 
+  grad1_plot, grad1_lolli_plot, grad1_lolli,
+  NULL, NULL, NULL,
+  grad2_plot, grad2_lolli_plot, grad2_lolli,
+  NULL, NULL, NULL,
+  grad3_plot, grad3_lolli_plot, grad3_lolli,
+  NULL, NULL, NULL,
+  labels = c("A Gradient 1", "", "",
+             "", "", "",
+             "B Gradient 2", "", "",
+             "", "", "",
+             "C Gradient 3", "", "",
+             "", "", "",
+             "", "", ""),
+  label_size = 8,
+  hjust = 0,
+  rel_widths = c(1.5, 1, 1),
+  rel_heights = c(0.15, 1, 0.15, 1, 0.15, 1, 0.15),
+  ncol = 3
+  )
 
-```{r}
-pca_sc <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = pca_sc)) +
-  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
-                       limits = c(-1200, 8000)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "pca\nscore") +
-  ggtitle("SC")
-
-```
-
-```{r}
-pca_cb <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = pca_cb)) +
-  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
-                       limits = c(-1200, 8000)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "pca\nscore") +
-  ggtitle("CB")
-
-```
-
-```{r}
-sfc_g1_sc <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = coupling_g1_sc)) +
-  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
-                       limits = c(-0.6, 0.6)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "rho")
-
-```
-
-```{r}
-sfc_g1_cb <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = couoling_g1_cb)) +
-  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
-                       limits = c(-0.6, 0.6)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "rho")
-
-```
-
-```{r}
-diff_g1 <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = sig_regions)) +
-  scale_fill_gradient2(low = "#440154", mid = "grey", high = "#43BF71",
-                       limits = c(-1, 1)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "")
-
-```
-
-```{r}
-sfc_g2_sc <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = coupling_g2_sc)) +
-  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
-                       limits = c(-0.6, 0.6)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "rho")
-
-```
-
-```{r}
-sfc_g2_cb <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = coupling_g2_cb)) +
-  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
-                       limits = c(-0.6, 0.6)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "rho")
-
-```
-
-```{r}
-sfc_g3_sc <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = couling_g3_sc)) +
-  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
-                       limits = c(-0.6, 0.6)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "rho")
-
-```
-
-```{r}
-sfc_g3_cb <- ggplot(data = sfc) +
-  geom_brain(atlas = glasser,
-             position = position_brain(side ~ hemi),
-             aes(fill = coupling_g3_cb)) +
-  scale_fill_gradient2(low = "blue", mid = "grey", high = "red",
-                       limits = c(-0.6, 0.6)) +
-  theme_void() +
-  theme(legend.key.height = unit(0.5, "cm")) +
-  theme(legend.key.width = unit(0.25, "cm")) +
-  theme(text = element_text(size = 12, family = "Calibri Light")) +
-  labs(fill = "rho")
-
-```
-
-# pca all figs
-
-```{r}
-cowplot::set_null_device(cairo_pdf)
-
-legend_pca <- cowplot::get_legend(pca_sc)
-legend_g1 <- cowplot::get_legend(sfc_g1_sc)
-legend_diff_g1 <- cowplot::get_legend(diff_g1)
-legend_g2 <- cowplot::get_legend(sfc_g2_sc)
-legend_g3 <- cowplot::get_legend(sfc_g3_sc)
-
-pca_all <- cowplot::plot_grid(
-  pca_sc + theme(legend.position = "none"), legend_pca, pca_cb + theme(legend.position = "none"), NULL, NULL, NULL,
-  NULL, NULL, NULL, NULL, NULL, NULL,
-  sfc_g1_sc + theme(legend.position = "none"), legend_g1, sfc_g1_cb + theme(legend.position = "none"), NULL, diff_g1 + theme(legend.position = "none"), legend_diff_g1,
-  NULL, NULL, NULL, NULL, NULL, NULL,
-  sfc_g2_sc + theme(legend.position = "none"), legend_g2, sfc_g2_cb + theme(legend.position = "none"), NULL, NULL, NULL,
-  NULL, NULL, NULL, NULL, NULL, NULL,
-  sfc_g3_sc + theme(legend.position = "none"), legend_g3, sfc_g3_cb + theme(legend.position = "none"), NULL, NULL, NULL,
-  labels = c("A", "", "", "", "", "",
-             "", "", "", "", "", "",
-             "B", "", "", "", "", "",
-             "", "", "", "", "", "",
-             "C", "", "", "", "", "",
-             "", "", "", "", "", "",
-             "D", "", "", "", "", "",
-             "", "", "", "", "", "",
-             "E", "", "", "", "", ""),
-  label_size = 12,
-  rel_widths = c(1, 0.25, 1, 0.1, 1, 0.25),
-  rel_heights = c(1, 0.1, 1, 0.1, 1, 0.1, 1),
-  ncol = 6,
-  align = "v")
-
-setwd("../publications/figures")
+setwd("../figures")
 
 cowplot::set_null_device(cairo_pdf)
 ggsave(
-  pca_all,
+  third_row,
   filename = "figure_3.pdf",
   device = cairo_pdf,
-  height = 20,
-  width = 22,
+  height = 18,
+  width = 15,
   units = "cm",
   bg = "transparent",
   dpi = "print"
@@ -475,14 +780,106 @@ ggsave(
 
 tiff(
   "figure_3.tiff",
-  height = 20,
-  width = 20,
+  height = 18,
+  width = 15,
   units = "cm",
   compression = "lzw",
   res = 500,
   type = "cairo",
   bg = "white"
 )
-pca_all
+print(third_row)
 dev.off()
+```
+
+# Figure S1
+
+```{r}
+cowplot::set_null_device(cairo_pdf)
+
+first_column <- 
+  cowplot::plot_grid(
+    g1_plot3,
+    g2_plot3,
+    g3_plot3,
+    labels = c("A Gradient 1", "B Gradient 2", "C Gradient 3"),
+    label_size = 12,
+    rel_heights =  c(1, 1, 1),
+    ncol = 1
+  )
+
+setwd("../figures")
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(
+  first_column,
+  filename = "figure_s1.pdf",
+  device = cairo_pdf,
+  height = 25,
+  width = 25,
+  units = "cm",
+  bg = "transparent",
+  dpi = "print"
+)
+
+tiff(
+  "figure_s1.tiff",
+  height = 25,
+  width = 25,
+  units = "cm",
+  compression = "lzw",
+  res = 500,
+  type = "cairo",
+  bg = "white"
+)
+dev.off()
+
+```
+
+# Figure S2
+
+```{r}
+roi_df <- frame %>% 
+  select(region, yeo, stream) %>%
+  mutate(is_roi = ifelse(is.na(stream), "no", "yes")) %>%
+  mutate(roi = ifelse(!is.na(stream), region, NA)) %>%
+  distinct()
+
+roi_plot <- ggplot(data = roi_df) +
+  geom_brain(atlas = glasser(),
+             position = position_brain(view ~ hemi),
+             aes(fill = is_roi),
+             size = 0.1) +
+  theme_void() +
+  scale_fill_manual(values = c("grey", "red")) +
+  theme(legend.title=element_blank()) +
+  theme(legend.key.size = unit(0.25, 'cm')) +
+  theme(legend.position = "none")
+
+setwd("../figures")
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(
+  roi_plot,
+  filename = "figure_s2.pdf",
+  device = cairo_pdf,
+  height = 7.5,
+  width = 10,
+  units = "cm",
+  bg = "transparent",
+  dpi = "print"
+)
+
+tiff(
+  "figure_s2.tiff",
+  height = 7.5,
+  width = 10,
+  units = "cm",
+  compression = "lzw",
+  res = 500,
+  type = "cairo",
+  bg = "white"
+)
+dev.off()
+
 ```

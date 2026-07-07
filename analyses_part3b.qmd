@@ -1,0 +1,721 @@
+---
+title: "pca for structural measures"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show the code"
+    toc: true
+    toc-depth: 3
+    embed-resources: true
+editor: source
+execute:
+  echo: false
+  warning: false
+knitr:
+  opts_chunk:
+    paged.print: false
+---
+
+# Structure-Function Coupling
+
+```{r}
+rm(list = ls(all = TRUE))
+
+library(data.table)
+library(dplyr)
+library(broom)
+library(ggplot2)
+library(afex)
+library(emmeans)
+library(tidytext)
+library(tidyr)
+library(patchwork)
+source("R/plotting.R")
+```
+
+# SFC - vertex-wise analysis
+
+```{r}
+vertices <- readRDS("../data_tidy/vertexwise_sfc.RDS")
+vertices$group <- factor(vertices$group, levels = c("CB", "SC"))
+setDT(vertices)
+
+pcs       <- c("PC1", "PC2", "PC3")
+gradients <- c("G1", "G2", "G3")
+combos    <- CJ(pc = pcs, gradient = gradients)
+
+vertices_wide <- dcast(
+  as.data.table(vertices),
+  subject + vertex + sex + group + age + site + is_lb_match + etiv ~ gradient,
+  value.var = c("gradient_value", "pc_score")
+)
+vertices_wide[, age_c := scale(age, center = TRUE, scale = FALSE)]
+
+setnames(vertices_wide,
+  old = c("pc_score_G1", "pc_score_G2", "pc_score_G3"),
+  new = c("PC1", "PC2", "PC3")
+)
+setnames(vertices_wide,
+  old = c("gradient_value_G1", "gradient_value_G2", "gradient_value_G3"),
+  new = c("G1", "G2", "G3")
+)
+
+run_afex_model <- function(data, pc_col, gradient_col) {
+  
+  dt <- as.data.table(copy(data))
+  
+  dt[, gradient_score := get(gradient_col)]
+  dt[, pc_score       := get(pc_col)]
+  
+  dt <- dt[!is.na(gradient_score) & !is.na(pc_score)]
+  
+  cat("  nrow after NA removal:", nrow(dt), "\n")
+  cat("  unique subjects:", dt[, uniqueN(subject)], "\n")
+  cat("  unique groups:", dt[, uniqueN(group)], "\n")
+  cat("  columns:", paste(names(dt), collapse = ", "), "\n")
+  
+  fit <- tryCatch(
+    mixed(
+      gradient_score ~ pc_score * group + age_c + sex + site +
+        (1 + pc_score | subject),
+      data    = dt,
+      method  = "S",
+      control = lmerControl(
+        optimizer = "bobyqa",
+        optCtrl   = list(maxfun = 2e5)),
+      check_contrasts = FALSE
+    ),
+    error = function(e) {
+      cat("  ERROR in random slope model:", conditionMessage(e), "\n")
+      NULL
+    }
+  )
+  
+  random_structure <- "random_slope"
+  
+  if (is.null(fit) || isSingular(fit$full_model)) {
+    cat("  --> falling back to intercept only\n")
+    fit <- tryCatch(
+      mixed(
+        gradient_score ~ pc_score * group + age_c + sex + site +
+          (1 | subject),
+        data    = dt,
+        method  = "S",
+        control = lmerControl(
+          optimizer = "bobyqa",
+          optCtrl   = list(maxfun = 2e5)),
+        check_contrasts = FALSE
+      ),
+      error = function(e) {
+        cat("  ERROR in intercept only model:", conditionMessage(e), "\n")
+        NULL
+      }
+    )
+    random_structure <- "intercept_only"
+  }
+  
+  if (is.null(fit)) {
+    cat("  --> both models failed, returning NULL\n")
+    return(NULL)
+  }
+  
+  saveRDS(fit, file = paste0("../results/fitvertex_", pc_col, "_", gradient_col, ".RDS"))
+  
+  anova_table <- as.data.table(anova(fit), keep.rownames = "term")
+  anova_table[, `:=`(
+    pc               = pc_col,
+    gradient         = gradient_col,
+    random_structure = random_structure
+  )]
+  
+  emtrends_res <- emtrends(fit$full_model, ~ group, var = "pc_score")
+  
+  emtrends_dt <- as.data.table(summary(emtrends_res))
+  emtrends_dt[, `:=`(
+    pc               = pc_col,
+    gradient         = gradient_col,
+    random_structure = random_structure
+  )]
+  
+  slopes_test <- as.data.table(test(emtrends_res))
+  slopes_test[, `:=`(
+    pc       = pc_col,
+    gradient = gradient_col
+  )]
+  
+  list(
+    anova  = anova_table,
+    trends = emtrends_dt,
+    trends_obj = emtrends_res,
+    tests  = slopes_test,
+    fit = fit$full_model
+  )
+}
+
+gradient_cols <- c("G1", "G2", "G3")
+pc_cols       <- c("PC1", "PC2", "PC3")
+
+results <- list()
+
+for (g in gradient_cols) {
+  for (p in pc_cols) {
+    
+    cat("Running:", g, "x", p, "\n")
+    
+    res <- run_afex_model(vertices_wide, p, g)
+    
+    if (!is.null(res)) {
+      results[[paste(g, p, sep = "_")]] <- res
+    }
+  }
+}
+
+anova_all <- rbindlist(lapply(results, `[[`, "anova"), fill = TRUE)
+trends_all <- rbindlist(lapply(results, `[[`, "trends"), fill = TRUE)
+tests_all  <- rbindlist(lapply(results, `[[`, "tests"),  fill = TRUE)
+```
+
+## results
+
+```{r paged.print=FALSE}
+anova_all[, p_fdr := p.adjust(`Pr(>F)`, method = "fdr"), by = .(term)]
+anova_all[,  significant := p_fdr < 0.05]
+
+results_summary <- anova_all[term == "pc_score" | term == "pc_score:group", ]
+results_summary[, p_fdr_fmt := ifelse(
+  p_fdr < 0.001,
+  "< .001",
+  formatC(p_fdr, format = "f", digits = 3)
+)]
+results_summary
+```
+
+
+## Figure 6A
+
+```{r}
+loadings <- fread("../data_tidy/vertexwise_loadings.csv")
+
+pc_labels <- c("1" = "PC 1", "2" = "PC 2", "3" = "PC 3")
+
+plot_loadings <- ggplot(loadings, aes(x = mean_loading, 
+                                              y = reorder_within(measure, mean_loading, pc))) +
+  geom_segment(aes(x = 0, xend = mean_loading,
+                   y = reorder_within(measure, mean_loading, pc),
+                   yend = reorder_within(measure, mean_loading, pc)),
+               color = "grey") +
+  # geom_pointrange(aes(xmin = mean_loading - sd_loading, xmax = mean_loading + sd_loading)) +
+  geom_point(aes(color = mean_loading), size = 1.5) +
+  theme_minimal(base_size = 8) +
+  scale_color_gradient2(low = "#00AFBB", mid = "#E7B800", high = "#FC4E07") +
+  ylab(element_blank()) +
+  xlab("PC loading") +
+  facet_wrap(~ pc, ncol = 3, scales = "free_x", strip.position = "top", 
+             labeller = as_labeller(pc_labels)) +
+  scale_y_reordered() +
+  coord_flip() + 
+  labs(color = 'PC\nloading') +
+  theme(
+    legend.margin = margin(t = -5, r = 0, b = 0, l = 0),
+    legend.box.margin = margin(t = -5, r = 0, b = 0, l = 0),
+    legend.position = "right",
+    legend.title.position = "top",
+    legend.key.width = unit(0.25, "cm"),
+    legend.key.height = unit(0.5, "cm"),
+    legend.title.align = 0.5,
+    axis.ticks.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust=1),
+    strip.text.x = element_text(size = 8),
+    panel.spacing = unit(2, "lines")
+    )
+plot_loadings
+```
+
+```{r}
+library(ggrepel)
+
+pc_cols       <- c("PC1", "PC2", "PC3")
+gradient_cols <- c("G1",  "G2",  "G3")
+
+pred_data_list       <- list()
+line_data_list       <- list()
+subject_slopes_list  <- list()
+group_slopes_ci_list <- list()
+pred_data_pooled_list <- list()
+group_slopes_ci_pooled_list <- list()
+
+for (g in gradient_cols) {
+  for (p in pc_cols) {
+    key <- paste(g, p, sep = "_")
+    res <- results[[key]]
+    if (is.null(res))
+      next
+    
+    fit              <- res$fit
+    random_structure <- unique(res$trends$random_structure)
+    
+    # ── Get reference levels from the fitted model directly ─────────────────
+    mf        <- model.frame(fit)
+    sex_ref   <- levels(mf$sex)[1]
+    site_ref  <- levels(mf$site)[1]
+    
+    # ── PC score range ───────────────────────────────────────────────────────
+    pc_range <- range(mf$pc_score, na.rm = TRUE)
+    pc_seq   <- seq(pc_range[1], pc_range[2], length.out = 80)
+    
+    # ── Group-level predictions via emmeans ──────────────────────────────────
+    em <- emmeans(fit,
+                  ~ pc_score * group,
+                  at = list(
+                    pc_score = pc_seq,
+                    age_c    = 0,
+                    sex      = sex_ref,
+                    site     = site_ref
+                  ))
+    
+    pd            <- as.data.frame(summary(em))
+    pd$pc         <- p
+    pd$gradient   <- g
+    names(pd)[names(pd) == "emmean"]    <- "fitted"
+    names(pd)[names(pd) == "lower.CL"] <- "lower.CL"
+    names(pd)[names(pd) == "upper.CL"] <- "upper.CL"
+    pred_data_list[[key]] <- pd
+    
+    # ── Pooled predictions (collapsing across group, for non-sig interactions) ──
+    # Pooled predictions — average over group from the already-computed em object
+    em_pooled   <- emmeans(em, ~ pc_score)
+    pd_pooled   <- as.data.frame(summary(em_pooled))
+    pd_pooled$pc         <- p
+    pd_pooled$gradient   <- g
+    pd_pooled$group      <- "pooled"
+    names(pd_pooled)[names(pd_pooled) == "emmean"]    <- "fitted"
+    names(pd_pooled)[names(pd_pooled) == "lower.CL"]  <- "lower.CL"
+    names(pd_pooled)[names(pd_pooled) == "upper.CL"]  <- "upper.CL"
+    names(pd_pooled)[names(pd_pooled) == "asymp.LCL"] <- "lower.CL"
+    names(pd_pooled)[names(pd_pooled) == "asymp.UCL"] <- "upper.CL"
+    pred_data_pooled_list[[key]] <- pd_pooled
+    
+    # ── Per-subject slopes and lines ─────────────────────────────────────────
+    re_all    <- ranef(fit)$subject
+    re_cols   <- names(re_all)
+    fe        <- fixef(fit)
+    fe_slope  <- fe["pc_score"]
+    fe_int    <- fe["(Intercept)"]
+    
+    has_int_re   <- "(Intercept)" %in% re_cols
+    has_slope_re <- "pc_score"    %in% re_cols
+    
+    re_dt <- as.data.frame(re_all)
+    re_dt$subject <- rownames(re_all)
+    
+    # Merge group info from model frame
+    subj_info <- unique(mf[, c("subject", "group"), drop = FALSE])
+    # Note: 'subject' may not be in model frame if it was only in grouping —
+    # pull from vertices_wide instead if needed
+    if (!"subject" %in% names(subj_info)) {
+      subj_info <- unique(vertices_wide[, .(subject, group)])
+      subj_info <- as.data.frame(subj_info)
+    }
+    
+    re_dt <- merge(re_dt, subj_info, by = "subject")
+    
+    re_dt$subj_int   <- fe_int   + if (has_int_re)
+      re_dt[["(Intercept)"]]
+    else
+      0
+    re_dt$subj_slope <- fe_slope + if (has_slope_re)
+      re_dt[["pc_score"]]
+    else
+      0
+    
+    x_min <- pc_range[1]
+    x_max <- pc_range[2]
+    
+    ld <- data.frame(
+      subject  = re_dt$subject,
+      group    = re_dt$group,
+      x_min    = x_min,
+      x_max    = x_max,
+      y_min    = re_dt$subj_int + re_dt$subj_slope * x_min,
+      y_max    = re_dt$subj_int + re_dt$subj_slope * x_max,
+      pc       = p,
+      gradient = g
+    )
+    line_data_list[[key]] <- ld
+    
+    # ── Group slopes + CIs from stored emtrends ──────────────────────────────
+    gci <- as.data.frame(res$trends)
+    
+    # Handle both possible CI column name conventions
+    if ("asymp.LCL" %in% names(gci)) {
+      names(gci)[names(gci) == "asymp.LCL"] <- "slope_lower"
+      names(gci)[names(gci) == "asymp.UCL"] <- "slope_upper"
+    } else {
+      names(gci)[names(gci) == "lower.CL"]  <- "slope_lower"
+      names(gci)[names(gci) == "upper.CL"]  <- "slope_upper"
+    }
+    names(gci)[names(gci) == "pc_score.trend"] <- "slope"
+    
+    if (!"pc" %in% names(gci))
+      gci$pc       <- p
+    if (!"gradient" %in% names(gci))
+      gci$gradient <- g
+    if (!"random_structure" %in% names(gci))
+      gci$random_structure <- random_structure
+    
+    # ── Standardise to beta weights ──────────────────────────────────────────
+    sd_pc       <- sd(mf$pc_score,       na.rm = TRUE)
+    sd_gradient <- sd(mf$gradient_score, na.rm = TRUE)
+    
+    group_slopes_ci_list[[key]] <- gci[, c(
+      "group",
+      "slope",
+      "slope_lower",
+      "slope_upper",
+      "pc",
+      "gradient",
+      "random_structure"
+    )]
+    
+    # ── Pooled slope (collapsing across group) ───────────────────────────────
+    trends_pooled <- emmeans(res$trends_obj, ~ 1, component = "trend")
+    gci_pooled    <- as.data.frame(summary(trends_pooled))
+    
+    gci_pooled <- as.data.frame(trends_pooled)
+    names(gci_pooled)[names(gci_pooled) == "pc_score.trend"] <- "slope"
+    if ("asymp.LCL" %in% names(gci_pooled)) {
+      names(gci_pooled)[names(gci_pooled) == "asymp.LCL"] <- "slope_lower"
+      names(gci_pooled)[names(gci_pooled) == "asymp.UCL"] <- "slope_upper"
+    } else {
+      names(gci_pooled)[names(gci_pooled) == "lower.CL"]  <- "slope_lower"
+      names(gci_pooled)[names(gci_pooled) == "upper.CL"]  <- "slope_upper"
+    }
+    gci_pooled$group    <- "pooled"
+    gci_pooled$pc       <- p
+    gci_pooled$gradient <- g
+    group_slopes_ci_pooled_list[[key]] <- gci_pooled[, c(
+      "group", "slope", "slope_lower", "slope_upper", "pc", "gradient"
+    )]
+  }
+}
+
+# ── Combine — use data.frame throughout to avoid ggplot2/data.table issues ───
+pred_data       <- do.call(rbind, pred_data_list)
+line_data       <- do.call(rbind, line_data_list)
+pred_data_pooled <- do.call(rbind, pred_data_pooled_list)
+class(pred_data_pooled) <- "data.frame"
+group_slopes_ci_pooled <- do.call(rbind, group_slopes_ci_pooled_list)
+
+# subject_slopes  <- do.call(rbind, subject_slopes_list)
+group_slopes_ci <- do.call(rbind, group_slopes_ci_list)
+
+# ── Fix CI column names in pred_data ─────────────────────────────────────────
+names(pred_data)[names(pred_data) == "asymp.LCL"] <- "lower.CL"
+names(pred_data)[names(pred_data) == "asymp.UCL"] <- "upper.CL"
+
+# Sanity check
+cat("pred_data cols:      ", paste(names(pred_data),       collapse = ", "), "\n")
+cat("line_data cols:      ", paste(names(line_data),        collapse = ", "), "\n")
+# cat("subject_slopes cols: ", paste(names(subject_slopes),  collapse = ", "), "\n")
+cat("group_slopes_ci cols:", paste(names(group_slopes_ci), collapse = ", "), "\n")
+cat("line_data rows:", nrow(line_data), "\n")
+
+```
+
+
+## Figure 6C
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════════
+# LABELS, COLOURS, ANNOTATION DATA
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Extract whether the group interaction is significant for each PC × gradient
+sig_lookup <- results_summary[term == "pc_score:group", 
+                               setNames(significant, paste0(pc, "_", gradient))]
+
+group_colors <- c(CB = "#43BF71", SC = "#440154")
+
+pc_labels <- c(PC1 = "PC1", PC2 = "PC2", PC3 = "PC3")
+gradient_labels <- c(G1 = "Gradient 1", G2 = "Gradient 2", G3 = "Gradient 3")
+
+# ── Morphological extreme annotations (left/right of slope panels) ───────────
+annot_left <- data.frame(
+  pc       = c("PC1", "PC2", "PC3"),
+  gradient = "G1",
+  x        = -Inf,
+  y        = Inf,
+  label    = c(
+    "low volume\nthin\nconcave\nsulci",
+    "convex\ngyri",
+    "small"
+  )
+)
+
+annot_right <- data.frame(
+  pc       = c("PC1", "PC2", "PC3"),
+  gradient = "G1",
+  x        = Inf,
+  y        = Inf,
+  label    = c(
+    "high volume\nthick\nconvex\ngyri",
+    "concave\nsulci",
+    "large"
+  )
+)
+
+# ── Gradient axis annotations (rotated, left-column panels only) ─────────────
+# One pair per gradient row, placed at y corners of the slope panel
+annot_gradient <- data.frame(
+  pc       = "PC1",
+  gradient = c("G1", "G1", "G2", "G2", "G3", "G3"),
+  x        = -Inf,
+  y        = c(-Inf, Inf, -Inf, Inf, -Inf, Inf),
+  label    = c(
+    "high-level",    "low-level",
+    "peripheral",  "foveal",
+    "ventral",     "dorsal"
+  )
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ASSEMBLE FULL FIGURE
+# ══════════════════════════════════════════════════════════════════════════════
+
+pc_list       <- pc_cols        # c("PC1", "PC2", "PC3")
+gradient_list <- gradient_cols  # c("G1",  "G2",  "G3")
+
+panel_list <- list()
+
+# calculate y-limits for plotting with same y-axis
+y_limits <- lapply(setNames(gradient_list, gradient_list), function(g) {
+  pd_g <- pred_data[pred_data$gradient == g, ]
+  c(min(pd_g$lower.CL, na.rm = TRUE),
+    max(pd_g$upper.CL, na.rm = TRUE))
+})
+
+y_limits_dot <- lapply(setNames(gradient_list, gradient_list), function(g) {
+  gci_g <- group_slopes_ci[group_slopes_ci$gradient == g, ]
+  c(min(gci_g$slope_lower, na.rm = TRUE),
+    max(gci_g$slope_upper, na.rm = TRUE))
+})
+
+sig_interaction <- results_summary[term == "pc_score:group", .(pc, gradient, sig_interaction = significant)]
+sig_main        <- results_summary[term == "pc_score",       .(pc, gradient, sig_main = significant)]
+
+slope_state <- merge(sig_interaction, sig_main, by = c("pc", "gradient"))
+slope_state[, plot_mode := fcase(
+  sig_interaction == TRUE, "by_group",
+  sig_main == TRUE,        "pooled",
+  default =                "flat"
+)]
+
+mode_lookup <- setNames(slope_state$plot_mode, paste0(slope_state$pc, "_", slope_state$gradient))
+
+for (gi in seq_along(gradient_list)) {
+  grad          <- gradient_list[gi]
+  is_top_row    <- gi == 1
+  
+  for (pi in seq_along(pc_list)) {
+    pc_col        <- pc_list[pi]
+    is_left_col   <- pi == 1
+    is_bottom_row <- gi == length(gradient_list)
+    is_last_pc    <- pi == length(pc_list)
+    
+    panel_list[[length(panel_list) + 1]] <- make_slope_panel(
+      pc_col,
+      grad,
+      show_y_axis    = TRUE,
+      show_x_axis    = is_bottom_row,
+      show_strip_top = is_top_row,
+      y_limits       = y_limits[[grad]],
+      plot_mode      = mode_lookup[paste0(pc_col, "_", grad)]
+    )
+    
+    panel_list[[length(panel_list) + 1]] <- make_dot_panel(
+      pc_col,
+      grad,
+      show_strip_top     = is_top_row,
+      # large_right_margin = !is_last_pc,
+      large_right_margin = FALSE,
+      y_limits           = y_limits_dot,
+      plot_mode      = mode_lookup[paste0(pc_col, "_", grad)]
+    )
+  }
+}
+
+col_widths <- rep(c(3, 1), length(pc_list))
+n_rows     <- length(gradient_list)
+n_cols     <- length(pc_list) * 2
+
+final_plot <- Reduce(`+`, panel_list) +
+  plot_layout(
+    nrow   = n_rows,
+    ncol   = n_cols,
+    widths = col_widths,
+    guides = "collect"
+  ) &
+  theme(legend.position = "bottom")
+
+final_plot
+```
+
+## Figure 6
+
+```{r}
+cowplot::set_null_device(cairo_pdf)
+
+all_figs <- cowplot::plot_grid(
+  plot_loadings,
+  NULL,
+  final_plot,
+  labels = "AUTO",
+  rel_heights = c(1, 1, 3),
+  ncol = 1,
+  align = "v"
+)
+
+setwd("../figures")
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(
+  all_figs,
+  filename = "figure_6.pdf",
+  device = cairo_pdf,
+  height = 21.5,
+  width = 18,
+  units = "cm",
+  bg = "transparent",
+  dpi = "print"
+)
+
+tiff(
+  "figure_6.tiff",
+  height = 21.5,
+  width = 18,
+  units = "cm",
+  compression = "lzw",
+  res = 500,
+  type = "cairo",
+  bg = "white"
+)
+all_figs
+dev.off()
+```
+
+### G1 x PC1
+
+```{r}
+model1 <- readRDS("../results/fitvertex_PC1_G1.RDS")
+model1
+```
+
+```{r}
+emtrends_res <- emtrends(model1$full_model, ~ 1 , var = "pc_score")
+emtrends_res
+```
+
+### G1 x PC2
+
+```{r}
+model <- readRDS("../results/fitvertex_PC2_G1.RDS")
+model
+```
+
+```{r}
+emtrends_res <- emtrends(model$full_model, ~ group, var = "pc_score")
+emtrends_res
+```
+
+```{r}
+pairs(emtrends_res)
+```
+
+
+### G1 x PC3
+
+```{r}
+model <- readRDS("../results/fitvertex_PC3_G1.RDS")
+model
+```
+
+```{r}
+emtrends_res <- emtrends(model$full_model, ~ 1, var = "pc_score")
+emtrends_res
+```
+
+```{r}
+pairs(emtrends_res)
+```
+
+### G2 x PC1
+
+```{r}
+model <- readRDS("../results/fitvertex_PC1_G2.RDS")
+model
+```
+
+```{r}
+emtrends_res <- emtrends(model$full_model, ~ group, var = "pc_score")
+emtrends_res
+```
+
+```{r}
+pairs(emtrends_res)
+```
+
+### G2 x PC2
+
+```{r}
+model <- readRDS("../results/fitvertex_PC2_G2.RDS")
+model
+```
+
+```{r}
+emtrends_res <- emtrends(model$full_model, ~ 1, var = "pc_score")
+emtrends_res
+```
+
+### G2 x PC3
+
+```{r}
+model <- readRDS("../results/fitvertex_PC3_G2.RDS")
+model
+```
+
+```{r}
+emtrends_res <- emtrends(model$full_model, ~ 1, var = "pc_score")
+emtrends_res
+```
+
+### G3 x PC1
+
+```{r}
+model <- readRDS("../results/fitvertex_PC1_G3.RDS")
+model
+```
+
+### G3 x PC2
+
+```{r}
+model <- readRDS("../results/fitvertex_PC2_G3.RDS")
+model
+```
+
+### G3 x PC3
+
+```{r}
+model <- readRDS("../results/fitvertex_PC3_G3.RDS")
+model
+```
+
+
+```{r}
+emtrends_res <- emtrends(model$full_model, ~ 1, var = "pc_score")
+emtrends_res
+```
+
+```{r}
+pairs(emtrends_res)
+```

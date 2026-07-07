@@ -1,0 +1,570 @@
+---
+title: "Connectivity gradients across neocortex"
+author: "Lena Stroh"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show the code"
+    toc: true
+    toc-depth: 3
+    embed-resources: true
+editor: source
+execute:
+  echo: false
+  warning: false
+knitr:
+  opts_chunk:
+    paged.print: false
+---
+
+```{r}
+#| label: Load libraries
+rm(list = ls(all = TRUE))
+
+library(data.table)
+library(ggplot2)
+library(ggsegGlasser)
+library(ggseg)
+library(dplyr)
+library(broom)
+library(afex)
+library(emmeans)
+
+# Load utility functions
+source("R/plotting.R")
+
+```
+
+```{r}
+#| label: Load data and specify fixed effects formula
+setwd("../data_tidy/")
+
+frame <- readRDS("gradients_lb.RDS")
+fixed_effects <- "group + age + sex"
+```
+
+Projection of 7 functional networks defined by Yeo et al. on ROIs defined by Glasser et al.
+
+```{r}
+#| label: Plot yeo networks
+dt_yeo <- frame %>%
+  dplyr::distinct(region, yeo, hemi)
+
+cmap_yeo <- c(
+  visual = "#781286", 
+  sensorimotor = "#4682B4", 
+  'dorsal attention' = "#00760E", 
+  'ventral attention' = "#C43AFA",
+  limbic = "#DCF8A4", 
+  frontoparietal = "#E69422", 
+  'default mode' = "#CD3E4E"
+)
+
+dt_yeo$yeo <- plyr::revalue(dt_yeo$yeo, c(
+  "VN" = "visual", 
+  "SMN" = "sensorimotor", 
+  "DAN" = "dorsal attention",
+  "VAN" = "ventral attention",
+  "LN" = "limbic",
+  "FPN" = "frontoparietal",
+  "DMN" = "default mode"
+))
+
+dt_yeo$yeo <- factor(dt_yeo$yeo, levels = names(cmap_yeo))
+
+yeo_plot <- ggplot(data = dt_yeo) +
+  geom_brain(
+    atlas = glasser(),
+    # position = position_brain(view + hemi ~ .),
+    position = position_brain(c(
+      "right lateral",
+      "right medial",
+      "left lateral",
+      "left medial"
+    )),
+    aes(fill = yeo),
+    size = 0.05
+  ) +
+  theme_void() +
+  # scale_fill_brewer(palette = "Dark2") +
+  scale_fill_manual(values = cmap_yeo, name = "") +
+  theme(legend.key.size = unit(0.25, 'cm'))
+print(yeo_plot)
+```
+
+Distribution of gradient values across G1 and G2 in the groups of blind and sighted individuals.
+
+```{r}
+cmap_yeo <- c(
+  VN = "#781286",
+  SMN = "#4682B4",
+  DAN = "#00760E",
+  VAN = "#C43AFA",
+  LN = "#DCF8A4",
+  FPN = "#E69422",
+  DMN = "#CD3E4E"
+)
+
+sum_group <- frame[, .(mean_grad = mean(gradient_score)), by = .(group, yeo, region, gradient)]
+sum_group_w <- dcast(sum_group, group + region + yeo ~ gradient, value.var = "mean_grad")
+
+grad_plot12 <- create_grad_plot(sum_group_w, gradient_1, gradient_2, "Gradient 1", "Gradient 2") +
+  labs(title = "Gradient scores for G1 and G2")  +
+  theme(plot.title = element_text(size = 8, margin = margin(0,0,0,0)))
+grad_plot12
+```
+
+Distribution of gradient values across G1 and G3 in the groups of blind and sighted individuals.
+
+```{r figure 1C}
+grad_plot13 <- create_grad_plot(sum_group_w, gradient_1, gradient_3, "Gradient 1", "Gradient 3") +
+  labs(title = "Gradient scores for G1 and G3")  +
+  theme(plot.title = element_text(size = 8, margin = margin(0,0,0,0)))
+grad_plot13
+```
+
+# Figure S4
+
+```{r}
+figure_s4 <- cowplot::plot_grid(
+  grad_plot12 + theme(legend.position = "none"),
+  grad_plot13 + theme(legend.position = "none"),
+  labels = "AUTO",
+  label_size = 8,
+  hjust = 0,
+  ncol = 1
+  )
+figure_s4
+
+setwd("../figures")
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(
+  figure_s4,
+  filename = "figure_s4.pdf",
+  device = cairo_pdf,
+  height = 15,
+  width = 15,
+  units = "cm",
+  bg = "transparent",
+  dpi = "print"
+)
+```
+
+
+# Connectivity gradients across neocortex
+
+## ROI analyses
+
+```{r paged.print = FALSE}
+
+stats_lm <- frame %>%
+  group_by(region, hemi, yeo, gradient, stream) %>%
+  do({
+    model <- lm(as.formula(paste("gradient_score ~", fixed_effects)), data = .)
+    
+    # Extract group coefficient only
+    tidy(model) %>%
+      filter(grepl("^group", term))  # Keep only group effect
+  }) %>%
+  ungroup() %>%
+  rename(
+    coefficient = estimate,
+    statistic = statistic
+  )
+
+# Apply FDR correction per gradient
+stats_corrected <- stats_lm %>%
+  group_by(gradient) %>%
+  mutate(p_adjust = p.adjust(p.value, method = "fdr")) %>%
+  ungroup() %>%
+  filter(p_adjust < 0.05)
+
+# extract min and max for plotting
+min_val <- min(stats_corrected$statistic)
+max_val <- max(stats_corrected$statistic)
+
+stats_g1 <- stats_corrected %>%
+  dplyr::filter(gradient == "gradient_1") %>%
+  arrange(yeo, stream) %>%
+  mutate_if(is.numeric, round, digits = 3) %>%
+  mutate(across(c(p.value, p_adjust), ~ ifelse(. < 0.001, "< 0.001", as.character(.)))) %>%
+  select(-gradient, -term) %>%
+  rename("p (uncorr)" = p.value, "p (corr)" = p_adjust) 
+
+# write.csv(stats_g1, "../results/table_s01.csv", row.names = FALSE)
+```
+
+### Gradient 1
+
+```{r}
+# We use the original data for plotting, just for visualization purposes
+sum_group <- frame[, .(mean_grad = mean(gradient_score, na.rm = TRUE)),
+                     by = .(group, yeo, region, gradient, hemi, stream)]
+
+gradient1_df <- sum_group %>%
+  filter(gradient == "gradient_1") %>%
+  group_by(group)
+
+g1_plot3 <- plot_2_groups(gradient1_df)
+g1_plot3
+```
+
+Results of the region-wise comparison of the gradient scores between groups of sighted and blind individuals (results were corrected for multiple comparisons with FDR at p \< .05).
+
+```{r}
+group_diff_g1_plot3 <- create_diff_plot3(stats_g1, min_val, max_val, "Gradient 1")
+group_diff_g1_plot3
+```
+
+### Gradient 2
+
+```{r}
+stats_g2 <- stats_corrected %>%
+  dplyr::filter(gradient == "gradient_2") %>%
+  arrange(yeo, stream) %>%
+  mutate_if(is.numeric, round, digits = 3) %>%
+  mutate(across(c(p.value, p_adjust), ~ ifelse(. < 0.001, "< 0.001", as.character(.)))) %>%
+  select(-gradient, -term) %>%
+  rename("p (uncorr)" = p.value, "p (corr)" = p_adjust) 
+```
+
+```{r}
+gradient2_df <- sum_group %>%
+  filter(gradient == "gradient_2") %>%
+  group_by(group)
+
+g2_plot3 <- plot_2_groups(gradient2_df)
+g2_plot3
+```
+
+Results of the region-wise comparison of the gradient scores between groups of sighted and blind individuals (results were corrected for multiple comparisons with FDR at p \< .05).
+
+```{r}
+group_diff_g2_plot3 <- create_diff_plot3(stats_g2, min_val, max_val, "Gradient 2")
+group_diff_g2_plot3
+```
+
+### Gradient 3
+
+```{r}
+stats_g3 <- stats_corrected %>%
+  dplyr::filter(gradient == "gradient_3") %>%
+  arrange(yeo, stream) %>%
+  mutate_if(is.numeric, round, digits = 3) %>%
+  mutate(across(c(p.value, p_adjust), ~ ifelse(. < 0.001, "< 0.001", as.character(.)))) %>%
+  select(-gradient, -term) %>%
+  rename("p (uncorr)" = p.value, "p (corr)" = p_adjust) 
+```
+
+```{r}
+gradient3_df <- sum_group %>%
+  filter(gradient == "gradient_3") %>%
+  group_by(group)
+
+g3_plot3 <- plot_2_groups(gradient3_df)
+g3_plot3
+```
+
+Results of the region-wise comparison of the gradient scores between groups of sighted and blind individuals (results were corrected for multiple comparisons with FDR at p \< .05).
+
+```{r}
+group_diff_g3_plot3 <- create_diff_plot3(stats_g3, min_val, max_val, "Gradient 3")
+group_diff_g3_plot3
+```
+
+## Community-based profiles
+
+To summarise the findings from the ROI analysis, we applied a well-established functional community decomposition (see Methods)49. Then we conducted a network-based z-score analysis of gradient scores for each of the first three gradients. In G1 and G2, the late blind group did not significantly differ from the sighted control group (all group x network interactions p > .05). In G3, we observed that the group of late blind individuals had lower gradient scores in the visual network than sighted controls. This is similar to what we observed for congenitally blind individuals.
+
+### Gradient 1
+
+Distribution of the gradient scores for each of the 7 functional networks (transparent distribution: group of blind individuals, non-transparent distribution: group of sighted controls). The tick below the density plots represents the mean gradient score.
+
+```{r}
+sum_community <- frame[, .(mean_grad = mean(gradient_score)),
+                         by = .(subject, group, yeo, gradient, age, sex)]
+
+gradient_1 <- sum_community[gradient == "gradient_1", ]
+
+grad1_plot <- create_dist_plot(gradient_1)
+grad1_plot
+```
+
+Results of the network-based z-score analysis of gradient scores.
+
+```{r paged.print = FALSE, warning=FALSE}
+community_g1 <- sum_community[gradient == "gradient_1", ]
+
+model1 <- mixed(as.formula(paste("mean_grad ~ yeo * ", fixed_effects, "+ (1|subject)")), data = community_g1)
+model1
+
+```
+
+### Gradient 2
+
+Distribution of the gradient scores for each of the 7 functional networks (transparent distribution: group of blind individuals, non-transparent distribution: group of sighted controls). The tick below the density plots represents the mean gradient score.
+
+```{r}
+gradient_2 <- sum_community[gradient == "gradient_2", ]
+
+grad2_plot <- create_dist_plot(gradient_2)
+grad2_plot
+```
+
+Results of the network-based z-score analysis of gradient scores.
+
+```{r paged.print = FALSE, warning=FALSE}
+community_g2 <- sum_community[gradient == "gradient_2", ]
+
+model1 <- mixed(as.formula(paste("mean_grad ~ yeo * ", fixed_effects, "+ (1|subject)")), data = community_g2)
+model1
+```
+
+### Gradient 3
+
+Distribution of the gradient scores for each of the 7 functional networks (transparent distribution: group of blind individuals, non-transparent distribution: group of sighted controls). The tick below the density plots represents the mean gradient score.
+
+```{r}
+gradient_3 <- sum_community[gradient == "gradient_3", ]
+
+grad3_plot <- create_dist_plot(gradient_3)
+grad3_plot
+```
+
+Results of the network-based z-score analysis of gradient scores.
+
+```{r paged.print = FALSE, warning=FALSE}
+community_g3 <- sum_community[gradient == "gradient_3", ]
+
+model1 <- mixed(as.formula(paste("mean_grad ~ yeo * ", fixed_effects, "+ (1|subject)")), data = community_g3)
+model1
+```
+
+Estimated marginal means for each groupxnetwork combination.
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+
+```
+
+Post-hoc tests assessing the effect of group on mean gradient scores of each Yeo network.
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+```
+
+Group differences in the mean gradient scores across 7 functional networks. Significant differences are shown with full color, whereas non-significant differences are shown with transparent color.
+
+```{r}
+grad3_lolli_plot <- create_lolli_plot(post_emm_int, t.ratio, yeo, cmap_yeo)
+grad3_lolli_plot
+```
+
+## Between-network distances
+
+In the next step, we tested for potential group differences in the distance of the visual network and the rest of the networks. In G1 and G2, we did not observe group differences in the distance between the visual network and the rest of the networks. In G3, the visual network of late blind individuals was closer to the ventral attention, dorsal attention, and frontoparietal networks than the visual network of sighted controls, similar to what we observed for congenitally blind individuals.
+
+### Gradient 1
+
+LMM Results: No significant group x network interaction.
+
+```{r}
+# Calculate the mean gradient for yeo == "VN" for each subject and group
+vn_means <- gradient_1 %>%
+  filter(yeo == "VN") %>%
+  group_by(subject, group) %>%
+  summarise(vn_mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop')
+
+# Join the means with the original dataframe
+vn_distance <- gradient_1 %>%
+  group_by(subject, group, yeo, age, sex) %>%
+  summarise(mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop') %>%
+  left_join(vn_means, by = c("subject", "group")) %>%
+  mutate(diff_vn = abs(mean_grad - vn_mean_grad)) %>%
+  filter(yeo != "VN") %>%
+  ungroup()
+
+model1 <- mixed(as.formula(paste("diff_vn ~ yeo * ", fixed_effects, "+ (1|subject)")), data = vn_distance)
+model1
+```
+
+### Gradient 2
+
+LMM Results: significant group x network interaction.
+
+```{r}
+# Calculate the mean gradient for yeo == "VN" for each subject and group
+vn_means <- gradient_2 %>%
+  filter(yeo == "VN") %>%
+  group_by(subject, group) %>%
+  summarise(vn_mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop')
+
+# Join the means with the original dataframe
+vn_distance <- gradient_2 %>%
+  group_by(subject, group, yeo, age, sex) %>%
+  summarise(mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop') %>%
+  left_join(vn_means, by = c("subject", "group")) %>%
+  mutate(diff_vn = abs(mean_grad - vn_mean_grad)) %>%
+  filter(yeo != "VN") %>%
+  ungroup()
+
+model1 <- mixed(as.formula(paste(
+  "diff_vn ~ yeo * ", fixed_effects, "+ (1|subject)"
+)), data = vn_distance)
+model1
+```
+
+Estimated marginal means
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+```
+
+Post-hoc tests: We did not observe significant differences between the groups in the distance of the visual network and the rest of the networks.
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+```
+
+### Gradient 3
+
+LMM Results: significant group x network interaction.
+
+```{r}
+# Calculate the mean gradient for yeo == "VN" for each subject and group
+vn_means <- gradient_3 %>%
+  filter(yeo == "VN") %>%
+  group_by(subject, group) %>%
+  summarise(vn_mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop')
+
+# Join the means with the original dataframe
+vn_distance <- gradient_3 %>%
+  group_by(subject, group, yeo, age, sex) %>%
+  summarise(mean_grad = mean(mean_grad, na.rm = TRUE), .groups = 'drop') %>%
+  left_join(vn_means, by = c("subject", "group")) %>%
+  mutate(diff_vn = abs(mean_grad - vn_mean_grad)) %>%
+  filter(yeo != "VN") %>%
+  ungroup()
+
+model1 <- mixed(as.formula(paste(
+  "diff_vn ~ yeo * ", fixed_effects, "+ (1|subject)"
+)), data = vn_distance)
+model1
+```
+
+Estimated marginal means
+
+```{r paged.print=FALSE}
+emm_int <- emmeans(model1, ~ group | yeo)
+
+emm_int_df <- summary(emm_int) %>%
+  data.table() %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+emm_int_df
+```
+
+Post-hoc tests: 
+
+```{r paged.print=FALSE}
+post_emm_int <- update(pairs(emm_int), adjust = "holm")
+post_df <- data.table(summary(post_emm_int))
+post_emm_int <- summary(post_emm_int) %>%
+  data.table()  %>%
+  dplyr::mutate_if(is.numeric, round, 3)
+post_emm_int
+```
+
+```{r paged.print=FALSE}
+vn_row <- data.frame(
+  contrast = "CB - SC",
+  yeo = " ",
+  estimate = NA,
+  SE = NA,
+  df = NA,
+  t.ratio = NA,
+  p.value = 1
+)
+
+post_df <- rbind(post_df, vn_row)
+post_df$yeo <- factor(post_df$yeo, levels = c(" ", "SMN", "DAN", "VAN", "LN",  "FPN", "DMN"))
+```
+
+Group differences in the distance between the visual and other functional networks. Significant differences are shown with full color, whereas non-significant differences are shown with transparent color.
+
+```{r}
+grad3_lolli <- create_lolli_plot(post_df, t.ratio, yeo, cmap_yeo)
+grad3_lolli
+```
+
+# Figure S5
+
+```{r}
+figure_s5 <- cowplot::plot_grid(
+  grad3_plot,
+  grad3_lolli_plot,
+  grad3_lolli,
+  NULL, NULL, NULL,
+  labels = c("Gradient 3", "", ""),
+  label_size = 8,
+  hjust = 0,
+  ncol = 3,
+  rel_widths = c(1.5, 1, 1),
+  rel_heights = c(1, 0.15)
+  )
+figure_s5
+
+setwd("../figures")
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(
+  figure_s5,
+  filename = "figure_s5.pdf",
+  device = cairo_pdf,
+  height = 5,
+  width = 15,
+  units = "cm",
+  bg = "transparent",
+  dpi = "print"
+)
+```
+
+# Figure S1
+
+```{r}
+cowplot::set_null_device(cairo_pdf)
+
+first_column <- 
+  cowplot::plot_grid(
+    g1_plot3,
+    g2_plot3,
+    g3_plot3,
+    labels = c("A Gradient 1", "B Gradient 2", "C Gradient 3"),
+    label_size = 12,
+    rel_heights =  c(1, 1, 1),
+    ncol = 1
+  )
+
+first_column
+
+```

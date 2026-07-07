@@ -1,0 +1,1228 @@
+---
+title: "pca for structural measures"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show the code"
+    toc: true
+    toc-depth: 3
+    embed-resources: true
+editor: source
+execute:
+  echo: false
+  warning: false
+knitr:
+  opts_chunk:
+    paged.print: false
+---
+
+# Structure-Function Coupling
+
+```{r}
+rm(list = ls(all = TRUE))
+
+library(data.table)
+library(dplyr)
+library(broom)
+library(ggsegGlasser)
+library(ggseg)
+library(ggplot2)
+library(afex)
+library(emmeans)
+library(tidytext)
+library(tidyr)
+library(patchwork)
+source("R/plotting.R")
+
+setwd("../data_tidy/")
+
+# CONFIGURATION
+INPUT_FILE  <- "morphometrics.rds" 
+ETIV_COL    <- "etiv" # eTIV column name
+RESIDUALIZE_ETIV <- FALSE
+RESIDUALIZE_MEASURES <- c("volume", "area")
+OUTPUT_LONG <- "output_PC1_long.csv"
+fixed_effects <- "group + age + sex + site"
+# set globally to avoid repeated warnings
+emm_options(lmerTest.limit = 30000, pbkrtest.limit = 30000)
+
+dt <- as.data.table(readRDS(INPUT_FILE))
+required_cols <- c("subject", "group", "measure", "morpho_score", "hemi", "region", "yeo", "stream", ETIV_COL)
+missing <- setdiff(required_cols, names(dt))
+if (length(missing) > 0) stop("Missing columns: ", paste(missing, collapse = ", "))
+
+cat(sprintf("Loaded %d rows, %d subjects, %d measures\n", nrow(dt), uniqueN(dt$subject), uniqueN(dt$measure)))
+dt[, etiv_val := get(ETIV_COL)]
+
+glasser_atlas <- ggsegGlasser::glasser()
+```
+
+# PCA of structural measures
+
+## STEP 1: Residualize volume and area for eTIV
+
+Model: morpho_score ~ etiv, per region × hemi × measure, across subjects
+
+```{r}
+dt[, residual_score := morpho_score]
+
+if (RESIDUALIZE_ETIV) {
+  cat("Step 1: Residualizing volume and area for eTIV...\n")
+  for (meas in RESIDUALIZE_MEASURES) {
+    cat(sprintf("  %s ~ etiv\n", meas))
+    idx <- which(dt$measure == meas)
+    sub <- dt[idx]
+    sub[, residual_score := {
+      if (.N < 5) {
+        morpho_score
+      } else {
+        fit <- tryCatch(lm(morpho_score ~ etiv_val, data = .SD), error = function(e) NULL)
+        if (is.null(fit)) morpho_score else residuals(fit)
+      }
+    }, by = .(region, hemi)]
+    dt[idx, residual_score := sub$residual_score]
+  }
+  cat("  Done.\n")
+}
+```
+
+## check measurements before normalization
+
+### thickness
+
+```{r, paged.print=FALSE}
+morpho_df <- dt[, .(mean_meas = mean(morpho_score)), by = .(group, region, hemi, measure, yeo)]
+morpho_df[region == "7Pl", region := "7PL"] # need to correct this for plotting
+
+plot_morpho_brain(morpho_df, glasser_atlas, "thickness", title = "Cortical Thickness")
+```
+
+Regions showing differences in cortical thickness
+
+```{r paged.print=FALSE}
+thickness <- dt[measure == "thickness", ]
+
+stats_lm <- thickness %>%
+  group_by(region, hemi) %>%
+  do({
+    model <- lm(as.formula(paste("residual_score ~", fixed_effects)), data = .)
+    
+    # Extract group coefficient only
+    tidy(model) %>%
+      filter(grepl("^group", term))  # Keep only group effect
+  }) %>%
+  ungroup() %>%
+  rename(
+    coefficient = estimate,
+    statistic = statistic
+  )
+
+stats_combined <- stats_lm %>%
+  mutate(p_adjust = p.adjust(p.value, method = "fdr")) %>%
+  mutate(statistic_thresholded = ifelse(p_adjust < 0.05, statistic, 0))
+
+stats_corr <- stats_combined %>%
+  filter(p_adjust < 0.05)
+
+stats_corr
+```
+
+### curvature
+
+```{r, paged.print=FALSE}
+my_gradient <- scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0, na.value = "grey90")
+plot_morpho_brain(morpho_df, glasser_atlas, "curvature", title = "Cortical Curvature")
+```
+
+Regions showing differences in curvature
+
+```{r paged.print=FALSE}
+curvature <- dt[measure == "curvature", ]
+
+stats_lm <- curvature %>%
+  group_by(region, hemi) %>%
+  do({
+    model <- lm(as.formula(paste("residual_score ~", fixed_effects)), data = .)
+    
+    # Extract group coefficient only
+    tidy(model) %>%
+      filter(grepl("^group", term))  # Keep only group effect
+  }) %>%
+  ungroup() %>%
+  rename(
+    coefficient = estimate,
+    statistic = statistic
+  )
+
+stats_combined <- stats_lm %>%
+  mutate(p_adjust = p.adjust(p.value, method = "fdr")) %>%
+  mutate(statistic_thresholded = ifelse(p_adjust < 0.05, statistic, 0))
+
+stats_corr <- stats_combined %>%
+  filter(p_adjust < 0.05)
+
+stats_corr
+```
+
+### surface area
+
+```{r, paged.print=FALSE}
+plot_morpho_brain(morpho_df, glasser_atlas, "area", title = "Surface Area")
+```
+
+Regions showing difference in surface area
+
+```{r paged.print=FALSE}
+area <- dt[measure == "area", ]
+
+stats_lm <- area %>%
+  group_by(region, hemi) %>%
+  do({
+    model <- lm(as.formula(paste("residual_score ~", fixed_effects, " + etiv")), data = .)
+    
+    # Extract group coefficient only
+    tidy(model) %>%
+      filter(grepl("^group", term))  # Keep only group effect
+  }) %>%
+  ungroup() %>%
+  rename(
+    coefficient = estimate,
+    statistic = statistic
+  )
+
+stats_combined <- stats_lm %>%
+  mutate(p_adjust = p.adjust(p.value, method = "fdr")) %>%
+  mutate(statistic_thresholded = ifelse(p_adjust < 0.05, statistic, 0))
+
+stats_corr <- stats_combined %>%
+  filter(p_adjust < 0.05)
+
+print(stats_corr, n = 100)
+```
+
+### volume
+
+```{r, paged.print=FALSE}
+plot_morpho_brain(morpho_df, glasser_atlas, "volume", title = "Volume")
+```
+
+```{r paged.print=FALSE}
+vol <- dt[measure == "volume", ]
+
+stats_lm <- vol %>%
+  group_by(region, hemi) %>%
+  do({
+    model <- lm(as.formula(paste("residual_score ~", fixed_effects, " + etiv")), data = .)
+    
+    # Extract group coefficient only
+    tidy(model) %>%
+      filter(grepl("^group", term))  # Keep only group effect
+  }) %>%
+  ungroup() %>%
+  rename(
+    coefficient = estimate,
+    statistic = statistic
+  )
+
+stats_combined <- stats_lm %>%
+  mutate(p_adjust = p.adjust(p.value, method = "fdr")) %>%
+  mutate(statistic_thresholded = ifelse(p_adjust < 0.05, statistic, 0))
+
+stats_corr <- stats_combined %>%
+  filter(p_adjust < 0.05)
+
+print(stats_corr, n = 100)
+```
+
+### depth
+
+```{r, paged.print=FALSE}
+plot_morpho_brain(morpho_df, glasser_atlas, "depth", title = "Sulcal Depth")
+```
+
+Regions showing differences in sulcal depth
+
+```{r paged.print=FALSE}
+depth <- dt[measure == "depth", ]
+
+stats_lm <- depth %>%
+  group_by(region, hemi) %>%
+  do({
+    model <- lm(as.formula(paste("residual_score ~", fixed_effects)), data = .)
+    
+    # Extract group coefficient only
+    tidy(model) %>%
+      filter(grepl("^group", term))  # Keep only group effect
+  }) %>%
+  ungroup() %>%
+  rename(
+    coefficient = estimate,
+    statistic = statistic
+  )
+
+stats_combined <- stats_lm %>%
+  mutate(p_adjust = p.adjust(p.value, method = "fdr")) %>%
+  mutate(statistic_thresholded = ifelse(p_adjust < 0.05, statistic, 0))
+
+stats_corr <- stats_combined %>%
+  filter(p_adjust < 0.05)
+
+print(stats_corr, n = 100)
+```
+
+## STEP 2: Z-score residuals across regions within each subject x measure
+
+```{r}
+dt[, region_hemi := paste0(hemi, "_", region)]
+dt[, z_score := scale(residual_score)[, 1], by = .(subject, measure)]
+dt[is.nan(z_score), z_score := 0]
+```
+
+## STEP 3: Within-subject PCA
+<!-- Matrix layout: rows = measures (5), columns = regions (360) -->
+<!-- pca$rotation[,1] -> PC1 loading per region (used downstream) -->
+<!-- pca$x[,1]        -> PC1 score per measure (used for loading summary) -->
+
+```{r paged.print=FALSE}
+run_subject_pca <- function(sub_dt) {
+  wide <- dcast(sub_dt, measure ~ region_hemi, value.var = "z_score")
+  
+  region_hemi_cols <- setdiff(names(wide), "measure")
+  mat <- as.matrix(as.data.frame(wide)[, region_hemi_cols])
+  rownames(mat) <- wide$measure
+  
+  keep <- colSums(is.na(mat)) == 0
+  mat  <- mat[, keep, drop = FALSE]
+  
+  n_pcs <- min(3, nrow(mat), ncol(mat))
+  
+  if (ncol(mat) < 2 || nrow(mat) < 2) {
+    empty_scores <- data.table(
+      region_hemi   = region_hemi_cols,
+      pc            = rep(1:3, each = length(region_hemi_cols)),
+      pc_score      = NA_real_,
+      var_explained = NA_real_
+    )
+    return(list(scores = empty_scores, mat = mat, loadings = NULL))  # >>> CHANGED
+  }
+  
+  # >>> CHANGED: transpose + proper scaling
+  pca <- prcomp(t(mat), center = TRUE, scale. = TRUE)
+  
+  var_exp  <- summary(pca)$importance[2, 1:n_pcs]
+  loadings <- pca$rotation   # TRUE loadings
+  scores   <- pca$x          # TRUE scores
+  
+  scores_list <- vector("list", n_pcs)
+  for (pc in 1:n_pcs) {
+    scores_list[[pc]] <- data.table(
+      region_hemi   = rownames(scores),                 # >>> CHANGED
+      pc            = pc,
+      pc_score      = as.numeric(scores[, pc]),         # >>> CHANGED
+      var_explained = var_exp[pc]
+    )
+  }
+  
+  list(
+    scores   = rbindlist(scores_list),
+    mat      = mat,
+    loadings = loadings   # >>> NEW
+  )
+}
+
+cat("Step 3: Running within-subject PCA...\n")
+results_list <- dt[, list(res = list(run_subject_pca(.SD))), by = subject]
+
+pc1_scores <- rbindlist(lapply(seq_len(nrow(results_list)), function(i) {
+  d <- results_list$res[[i]]$scores
+  d[, subject := results_list$subject[i]]
+  d
+}))
+
+pc1_scores[, hemi   := sub("_.*", "", region_hemi)]
+pc1_scores[, region := sub("^[^_]*_", "", region_hemi)]
+cat(sprintf("  PCA complete for %d subjects.\n", uniqueN(pc1_scores$subject)))
+
+var_summary <- pc1_scores[, .(
+  var_explained = round(mean(var_explained, na.rm = TRUE)*100, digits = 1),
+  sd            = round(sd(var_explained,   na.rm = TRUE)*100, digits = 1)
+), by = pc]
+cat("\nMean variance explained per PC:\n")
+print(var_summary)
+
+# Step 4: Sign alignment
+cat("Step 4: Aligning PC sign across subjects...\n")
+ref_profile <- dt[, .(mean_z = mean(z_score, na.rm = TRUE)), by = region_hemi]
+
+sign_check <- pc1_scores[!is.na(pc_score)][
+  ref_profile, on = "region_hemi", nomatch = 0
+][, .(r = cor(pc_score, mean_z, use = "complete.obs")), by = .(subject, pc)]
+
+sign_check[, {
+  n_neg <- sum(r < 0, na.rm = TRUE)
+  n_pos <- sum(r >= 0, na.rm = TRUE)
+  cat(sprintf("  PC%d — Subjects with positive alignment: %d, negative: %d\n", pc[1], n_pos, n_neg))
+}, by = pc]
+
+pc1_scores <- merge(pc1_scores, sign_check, by = c("subject", "pc"))
+pc1_scores[r < 0, pc_score := -pc_score]
+pc1_scores[, r := NULL]
+
+# Step 5: Extract TRUE loadings and align sign
+cat("Step 5: Extracting and aligning true PCA loadings...\n")
+
+pc1_loadings <- rbindlist(lapply(seq_len(nrow(results_list)), function(i) {
+  sub <- results_list$subject[i]
+  res <- results_list$res[[i]]
+  mat <- res$mat
+  
+  if (is.null(mat) || is.null(res$loadings)) return(NULL)
+  
+  loadings <- res$loadings
+  
+  n_pcs <- min(3, ncol(loadings))
+  
+  rbindlist(lapply(1:n_pcs, function(pc_i) {
+    
+    pca <- prcomp(t(mat), center = TRUE, scale. = TRUE)
+    raw_scores <- pca$x[, pc_i]
+    
+    aligned_scores <- pc1_scores[
+      subject == sub & pc == pc_i,
+      .(region_hemi, pc_score)
+    ]
+    
+    aligned_scores <- aligned_scores[region_hemi %in% rownames(pca$x)]
+    aligned_vec <- aligned_scores$pc_score[
+      match(rownames(pca$x), aligned_scores$region_hemi)
+    ]
+    
+    if (any(is.na(aligned_vec))) return(NULL)
+    
+    # >>> NEW: compute sign flip
+    sign_flip <- sign(cor(raw_scores, aligned_vec))
+    
+    # >>> NEW: apply to TRUE loadings
+    aligned_loadings <- loadings[, pc_i] * sign_flip
+    
+    data.table(
+      subject    = sub,
+      measure    = rownames(loadings),
+      pc         = pc_i,
+      pc_loading = aligned_loadings
+    )
+  }))
+}))
+
+# Step 6: Summarise loadings
+cat("Step 6: Summarising per-measure PC loadings...\n")
+loading_summary <- pc1_loadings[, .(
+  mean_loading = round(mean(pc_loading, na.rm = TRUE), 3),
+  sd_loading   = round(sd(pc_loading,   na.rm = TRUE), 3)
+), by = .(pc, measure)] %>%
+  arrange(pc, mean_loading)
+
+cat("\nPer-measure PC loadings (mean ± SD across subjects):\n")
+print(loading_summary)
+```
+
+## STEP 4: Loadings
+
+```{r}
+pc_labels <- c("1" = "PC 1", "2" = "PC 2", "3" = "PC 3")
+
+plot_loadings <- ggplot(loading_summary, aes(x = mean_loading, 
+                                              y = reorder_within(measure, mean_loading, pc))) +
+  geom_segment(aes(x = 0, xend = mean_loading,
+                   y = reorder_within(measure, mean_loading, pc),
+                   yend = reorder_within(measure, mean_loading, pc)),
+               color = "grey") +
+  geom_point(aes(color = mean_loading), size = 1.5) +
+  theme_minimal(base_size = 8) +
+  scale_color_gradient2(low = "#00AFBB", mid = "#E7B800", high = "#FC4E07") +
+  ylab(element_blank()) +
+  xlab("PC loading") +
+  facet_wrap(~ pc, ncol = 3, scales = "free_x", strip.position = "top", 
+             labeller = as_labeller(pc_labels)) +
+  scale_y_reordered() +
+  coord_flip() + 
+  labs(color = 'PC\nloading') +
+  theme(
+    legend.margin = margin(t = -5, r = 0, b = 0, l = 0),
+    legend.box.margin = margin(t = -5, r = 0, b = 0, l = 0),
+    legend.position = "right",
+    legend.title.position = "top",
+    legend.key.width = unit(0.25, "cm"),
+    legend.key.height = unit(0.5, "cm"),
+    legend.title.align = 0.5,
+    axis.ticks.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust=1),
+    strip.text.x = element_text(size = 8),
+    panel.spacing = unit(2, "lines")
+    )
+plot_loadings
+```
+
+
+## STEP 6: Merge PC1 scores back into main data table and save
+
+```{r}
+dt[, etiv_val := NULL]
+
+# Reshape scores from long to wide (one column per PC)
+pc_scores_wide <- dcast(pc1_scores, subject + hemi + region ~ pc, 
+                        value.var = "pc_score")
+setnames(pc_scores_wide, 
+         old = c("1", "2", "3"), 
+         new = c("pc1_score", "pc2_score", "pc3_score"))
+
+# Also add var_explained per PC as separate columns
+var_wide <- dcast(unique(pc1_scores[, .(subject, pc, var_explained)]),
+                  subject ~ pc, value.var = "var_explained")
+setnames(var_wide,
+         old = c("1", "2", "3"),
+         new = c("pc1_var_explained", "pc2_var_explained", "pc3_var_explained"))
+
+dt_out <- merge(dt, pc_scores_wide, by = c("subject", "hemi", "region"), all.x = TRUE)
+dt_out <- merge(dt_out, var_wide,   by = "subject", all.x = TRUE)
+
+fwrite(dt_out, OUTPUT_LONG)
+cat(sprintf("  Saved: %s  (%d rows)\n", OUTPUT_LONG, nrow(dt_out)))
+```
+
+# PCA - group comparisons, ROI approach
+
+```{r paged.print=FALSE}
+dt_pc <- unique(dt_out[, .(subject, group, age, sex, site, region, hemi, yeo, pc1_score, pc2_score, pc3_score)])
+
+stats_lm <- dt_pc %>%
+  pivot_longer(cols = c(pc1_score, pc2_score, pc3_score),
+               names_to = "pc",
+               values_to = "pc_score") %>%
+  mutate(pc = as.integer(gsub("pc(\\d)_score", "\\1", pc))) %>%
+  group_by(region, hemi, yeo, pc) %>%
+  do({
+    model <- lm(as.formula(paste("pc_score ~", fixed_effects)), data = .)
+    tidy(model) %>%
+      filter(grepl("^group", term))
+  }) %>%
+  ungroup() %>%
+  rename(
+    coefficient = estimate,
+    statistic   = statistic
+  )
+
+stats_combined <- stats_lm %>%
+  ungroup() %>%
+  group_by(pc) %>%                                      # FDR correction within each PC
+  mutate(p_adjust = p.adjust(p.value, method = "fdr")) %>%
+  ungroup() %>%
+  mutate(statistic_thresholded = ifelse(p_adjust < 0.05, statistic, 0))
+
+stats_corr <- stats_combined %>%
+  filter(p_adjust < 0.05)
+
+print(stats_corr)
+```
+
+```{r}
+dt_pc[, region_plot := region]
+dt_pc[region_plot == "7Pl", region_plot := "7PL"]
+
+plot_pc_brain <- function(data, pc_num = 1, groups = c("CB", "SC"), atlas = glasser_atlas) {
+  
+  pc_col <- paste0("pc", pc_num, "_score")
+  
+  pca_df <- data[group %in% groups,
+                 .(mean_pc_score = mean(get(pc_col), na.rm = TRUE)),
+                 by = .(region, hemi, group)]
+  
+  atlas_skel <- atlas$core %>%
+  left_join(
+    atlas$data$sf %>%
+      as_tibble() %>%
+      select(label, side = view) %>%
+      distinct(),
+    by = "label"
+  ) %>%
+  select(hemi, side, region, label)
+  
+  full_data <- lapply(groups, function(g) {
+    df_group <- pca_df[group == g, .(hemi, region, mean_pc_score)]
+    
+    atlas_skel %>%
+      left_join(df_group, by = c("hemi", "region")) %>%
+      mutate(group = g)
+  })
+  
+  full_data <- bind_rows(full_data)
+  full_data$group <- factor(full_data$group, levels = groups)
+  
+  mid_val <- mean(range(full_data$mean_pc_score, na.rm = TRUE))
+  
+  atlas$data$sf <- atlas$data$sf %>%
+    filter(view %in% c("lateral", "medial"))
+  
+  ggplot(full_data) +
+    geom_brain(atlas    = atlas,
+               position = position_brain(view ~ hemi),
+               aes(fill = mean_pc_score)) +
+    scale_fill_gradient2(
+      low = "#00AFBB",
+      mid = "#E7B800",
+      high = "#FC4E07",
+      midpoint = mid_val,
+      na.value = "grey80"
+    ) +
+    theme_void() +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(hjust = 0.5, size = 8),
+      legend.key.width = unit(0.25, "cm"),
+      legend.key.height = unit(0.5, "cm"),
+      legend.title.align = 0.5,
+      text = element_text(size = 8),
+      strip.text        = element_text(size = 8)
+    ) +
+    labs(fill = paste0("PC\nscore"),
+         title = paste0("PC", pc_num))
+}
+
+sc_pc <- dt_pc[group == "SC", ]
+pc1_plot <- plot_pc_brain(sc_pc, pc_num = 1)
+pc2_plot <- plot_pc_brain(sc_pc, pc_num = 2)
+pc3_plot <- plot_pc_brain(sc_pc, pc_num = 3)
+```
+
+# SFC - group comparisons, ROI approach
+
+```{r paged.print=FALSE}
+func <- readRDS("../data_tidy/gradients.RDS")
+func_struct <- left_join(func, dt_pc)
+func_struct[, group := relevel(group, ref = "SC")]
+func_struct[, age_c := scale(age, center = TRUE, scale = FALSE)]
+
+pcs       <- c("pc1_score", "pc2_score", "pc3_score")
+gradients <- c("gradient_1", "gradient_2", "gradient_3")
+combos    <- CJ(pc = pcs, gradient = gradients)
+
+group_colors <- c(CB = "#43BF71", SC = "#440154")
+
+pc_labels <- c(
+  "pc1_score" = "PC1\n",
+  "pc2_score" = "PC2\n",
+  "pc3_score" = "PC3\n"
+)
+
+gradient_labels <- c(
+  gradient_1 = "Gradient 1",
+  gradient_2 = "Gradient 2",
+  gradient_3 = "Gradient 3"
+)
+
+run_afex_model <- function(data, pc_col, gradient_name) {
+  
+  data_gradient <- data[gradient == gradient_name]
+  data_gradient[["pc_score"]] <- data_gradient[[pc_col]]
+  
+  # fit with afex - tries random slope first
+  fit <- tryCatch(
+    mixed(gradient_score ~ pc_score * group + age_c + sex + site +
+            (1 + pc_score | subject),
+          data    = data_gradient,
+          method  = "S",
+          control = lmerControl(optimizer = "bobyqa"),
+          check_contrasts = FALSE),
+    error = function(e) NULL
+  )
+  
+  random_structure <- "random_slope"
+  if (is.null(fit) || isSingular(fit$full_model)) {
+    fit <- tryCatch(
+      mixed(gradient_score ~ pc_score * group + age_c + sex + site +
+              (1 | subject),
+            data    = data_gradient,
+            method  = "S",
+            control = lmerControl(optimizer = "bobyqa"),
+            check_contrasts = FALSE),
+      error = function(e) NULL
+    )
+    random_structure <- "intercept_only"
+  }
+  
+  if (is.null(fit)) return(NULL)
+  
+  saveRDS(fit, file = paste0("../results/fit_", pc_col, "_", gradient_name, ".RDS"))
+  
+  # anova table - reference level independent
+  anova_table <- as.data.table(anova(fit), keep.rownames = "term")
+  anova_table[, `:=`(pc = pc_col, gradient = gradient_name,
+                     random_structure = random_structure)]
+  
+  # emtrends - simple slopes per group
+  emtrends_res <- emtrends(fit$full_model, ~ group, var = "pc_score")
+  
+  emtrends_dt  <- as.data.table(summary(emtrends_res))
+  emtrends_dt[, `:=`(pc = pc_col,
+                     gradient = gradient_name,
+                     random_structure = random_structure)]
+  
+  # test slopes against zero
+  slopes_test  <- as.data.table(test(emtrends_res))
+  slopes_test[, `:=`(pc = pc_col, gradient = gradient_name)]
+  
+  list(
+    anova   = anova_table,
+    trends  = emtrends_dt,
+    trends_obj = emtrends_res,
+    tests   = slopes_test,
+    fit = fit$full_model
+  )
+}
+
+# run for all combinations
+results_afex <- mapply(
+  function(pc, grad) run_afex_model(func_struct, pc, grad),
+  combos$pc, combos$gradient,
+  SIMPLIFY = FALSE
+)
+
+# collate results
+anova_results  <- rbindlist(lapply(results_afex, `[[`, "anova"))
+trends_results <- rbindlist(lapply(results_afex, `[[`, "trends"))
+tests_results_roi  <- rbindlist(lapply(results_afex, `[[`, "tests"))
+
+# FDR correction
+# ANOVA: FDR across all 9 models, separately per term
+anova_results[, p_fdr := p.adjust(`Pr(>F)`, method = "fdr"), by = .(term)]
+anova_results[,  significant := p_fdr < 0.05]
+
+results_roi <- anova_results[term == "pc_score" | term == "pc_score:group", ]
+results_roi[, p_fdr_fmt := ifelse(
+  p_fdr < 0.001,
+  "< .001",
+  formatC(p_fdr, format = "f", digits = 3)
+)]
+results_roi
+```
+
+## G1 x PC1
+
+```{r}
+model <- readRDS("../results/fit_pc1_score_gradient_1.RDS")
+slope <- emtrends(model$full_model, ~ 1, var = "pc_score")
+slope
+```
+## G1 x PC2
+
+```{r}
+model <- readRDS("../results/fit_pc2_score_gradient_1.RDS")
+slope <- emtrends(model$full_model, ~ group, var = "pc_score")
+slope
+```
+## G2 x PC1
+
+```{r}
+model <- readRDS("../results/fit_pc1_score_gradient_2.RDS")
+slope <- emtrends(model$full_model, ~ 1, var = "pc_score")
+slope
+```
+## G2 x PC2
+
+```{r}
+model <- readRDS("../results/fit_pc2_score_gradient_2.RDS")
+slope <- emtrends(model$full_model, ~ 1, var = "pc_score")
+slope
+```
+## G2 x PC3
+
+```{r}
+model <- readRDS("../results/fit_pc3_score_gradient_2.RDS")
+slope <- emtrends(model$full_model, ~ group, var = "pc_score")
+slope
+```
+```{r}
+pairs(slope)
+```
+## G3 x PC1
+
+```{r}
+model <- readRDS("../results/fit_pc1_score_gradient_3.RDS")
+slope <- emtrends(model$full_model, ~ group, var = "pc_score")
+slope
+```
+```{r}
+pairs(slope)
+```
+## G3 x PC2
+
+```{r}
+model <- readRDS("../results/fit_pc2_score_gradient_3.RDS")
+slope <- emtrends(model$full_model, ~ 1, var = "pc_score")
+slope
+```
+
+
+```{r}
+# if pc/gradient not stored in res, parse from key
+pc_cols       <- c("PC1", "PC2", "PC3")
+gradient_cols <- c("G1",  "G2",  "G3")
+
+subject_slopes_list        <- list()
+group_slopes_ci_list       <- list()
+group_slopes_ci_pooled_list <- list()
+pred_data_list             <- list()
+pred_data_pooled_list      <- list()
+
+for (i in seq_along(results_afex)) {
+  res      <- results_afex[[i]]
+  full_fit <- res$fit
+  if (is.null(full_fit)) next
+
+  pc_col        <- combos$pc[i]
+  gradient_name <- combos$gradient[i]
+  key           <- paste(pc_col, gradient_name, sep = "_")
+
+  mf       <- model.frame(full_fit)
+  sex_ref  <- levels(mf$sex)[1]
+  site_ref <- levels(mf$site)[1]
+  random_structure <- unique(res$trends$random_structure)
+
+  # ── Subject slopes ─────────────────────────────────────────────────────────
+  fe      <- fixef(full_fit)
+  fe_slope <- fe["pc_score"]
+  fe_int   <- fe["(Intercept)"]
+
+  group_levels    <- levels(mf$group)
+  group_slope_adj <- sapply(group_levels, function(g) {
+    term <- paste0("pc_score:group", g)
+    if (term %in% names(fe)) fe[term] else 0
+  })
+  names(group_slope_adj) <- group_levels
+
+  re         <- as.data.table(ranef(full_fit)$subject, keep.rownames = "subject")
+  subj_group <- unique(mf[, c("subject", "group")])
+  re         <- merge(re, subj_group, by = "subject")
+
+  if (random_structure == "random_slope") {
+    re[, slope     := fe_slope + unname(group_slope_adj[as.character(group)]) + get("pc_score")]
+    re[, intercept := fe_int + `(Intercept)`]
+  } else {
+    re[, slope     := fe_slope + unname(group_slope_adj[as.character(group)])]
+    re[, intercept := fe_int + `(Intercept)`]
+  }
+  re[, `:=`(pc = pc_col, gradient = gradient_name, random_structure = random_structure)]
+  subject_slopes_list[[key]] <- re[, .(subject, group, slope, intercept, pc, gradient, random_structure)]
+
+  # ── Group slope CIs ────────────────────────────────────────────────────────
+  et    <- emtrends(full_fit, ~ group, var = "pc_score")
+  et_dt <- as.data.table(summary(et, infer = TRUE))
+  setnames(et_dt,
+           old = c("pc_score.trend", "lower.CL", "upper.CL"),
+           new = c("slope", "slope_lower", "slope_upper"))
+  et_dt[, `:=`(pc = pc_col, gradient = gradient_name, random_structure = random_structure)]
+  group_slopes_ci_list[[key]] <- et_dt[, .(group, slope, slope_lower, slope_upper, pc, gradient, random_structure)]
+
+  # ── Pooled slope CI ────────────────────────────────────────────────────────
+  et_pooled    <- emmeans(et, ~ 1)
+  et_pooled_dt <- as.data.table(summary(et_pooled, infer = TRUE))
+  setnames(et_pooled_dt,
+           old = c("pc_score.trend", "lower.CL", "upper.CL"),
+           new = c("slope", "slope_lower", "slope_upper"))
+  et_pooled_dt[, `:=`(group = "pooled", pc = pc_col, gradient = gradient_name, random_structure = random_structure)]
+  group_slopes_ci_pooled_list[[key]] <- et_pooled_dt[, .(group, slope, slope_lower, slope_upper, pc, gradient, random_structure)]
+
+  # ── Group-level predictions ────────────────────────────────────────────────
+  pc_range <- seq(min(mf$pc_score, na.rm = TRUE), max(mf$pc_score, na.rm = TRUE), length.out = 100)
+
+  em    <- emmeans(full_fit, ~ pc_score * group,
+                   at = list(pc_score = pc_range, age_c = 0, sex = sex_ref, site = site_ref))
+  pred  <- as.data.table(summary(em, infer = TRUE))
+  pred[, `:=`(pc = pc_col, gradient = gradient_name)]
+  setnames(pred, "emmean", "fitted")
+  if ("asymp.LCL" %in% names(pred)) setnames(pred, c("asymp.LCL", "asymp.UCL"), c("lower.CL", "upper.CL"))
+  pred_data_list[[key]] <- pred[, .(pc_score, group, fitted, lower.CL, upper.CL, pc, gradient)]
+
+  # ── Pooled predictions ─────────────────────────────────────────────────────
+  em_pooled    <- emmeans(em, ~ pc_score)
+  pred_pooled  <- as.data.table(summary(em_pooled, infer = TRUE))
+  pred_pooled[, `:=`(pc = pc_col, gradient = gradient_name, group = "pooled")]
+  setnames(pred_pooled, "emmean", "fitted")
+  if ("asymp.LCL" %in% names(pred_pooled)) setnames(pred_pooled, c("asymp.LCL", "asymp.UCL"), c("lower.CL", "upper.CL"))
+  pred_data_pooled_list[[key]] <- pred_pooled[, .(pc_score, group, fitted, lower.CL, upper.CL, pc, gradient)]
+}
+
+subject_slopes         <- rbindlist(subject_slopes_list)
+group_slopes_ci        <- rbindlist(group_slopes_ci_list)
+group_slopes_ci_pooled <- rbindlist(group_slopes_ci_pooled_list)
+pred_data              <- rbindlist(pred_data_list)
+pred_data_pooled       <- rbindlist(pred_data_pooled_list)
+class(pred_data_pooled) <- "data.frame"
+```
+
+## Figure 5C
+
+```{r}
+# ── 0.  Define your combos (pc × gradient) ────────────────────────────────────
+pc_list       <- unique(combos$pc)
+gradient_list <- unique(combos$gradient)
+
+# ── 0b. Define slope panel annotations ────────────────────────────────────────
+annot_left <- data.frame(
+  pc       = c("pc1_score", "pc2_score", "pc3_score"),
+  gradient = c("gradient_1", "gradient_1", "gradient_1"),
+  x        = c(-Inf, -Inf, -Inf),
+  y        = c(Inf, Inf, Inf),
+  label    = c(
+    "low volume\nsmall area\nconcave\nsulci",
+    "small area\nthick",
+    "thin"
+  )
+)
+
+annot_right <- data.frame(
+  pc       = c("pc1_score", "pc2_score", "pc3_score"),
+  gradient = c("gradient_1", "gradient_1", "gradient_1"),
+  x        = c(Inf, Inf, Inf),
+  y        = c(Inf, Inf, Inf),
+  label    = c(
+    "high volume\nlarge area\nconvex\ngyri",
+    "large area\nthin",
+    "thick"
+  )
+)
+
+annot_gradient <- data.frame(
+  pc       = c("pc1_score", "pc1_score", "pc1_score", "pc1_score", "pc1_score", "pc1_score"),
+  gradient = c("gradient_1", "gradient_1", "gradient_2", "gradient_2", "gradient_3", "gradient_3"),
+  x        = c(-Inf, -Inf, -Inf, -Inf, -Inf, -Inf),
+  y        = c(-Inf, Inf, -Inf, Inf, -Inf, Inf),
+  label    = c("unimodal", "transmodal", "visual", "sensorimotor", "frontoparietal", "rest")
+)
+
+# calculate y-limits for plotting with same y-axis
+y_limits <- lapply(setNames(gradient_list, gradient_list), function(g) {
+  pd_g <- pred_data[pred_data$gradient == g, ]
+  c(min(pd_g$lower.CL, na.rm = TRUE),
+    max(pd_g$upper.CL, na.rm = TRUE))
+})
+
+y_limits_dot <- c(
+  min(group_slopes_ci$slope_lower, na.rm = TRUE),
+  max(group_slopes_ci$slope_upper, na.rm = TRUE)
+)
+
+sig_int  <- results_roi[term == "pc_score:group", .(pc, gradient, sig_interaction = significant)]
+sig_main <- results_roi[term == "pc_score",       .(pc, gradient, sig_main = significant)]
+
+slope_state <- merge(sig_int, sig_main, by = c("pc", "gradient"))
+slope_state[, plot_mode := fcase(
+  sig_interaction == TRUE, "by_group",
+  sig_main == TRUE,        "pooled",
+  default =                "flat"
+)]
+
+mode_lookup <- setNames(slope_state$plot_mode, paste0(slope_state$pc, "_", slope_state$gradient))
+
+# ── 3.  Build panel grid ──────────────────────────────────────────────────────
+panel_list <- list()
+for (gi in seq_along(gradient_list)) {
+  grad          <- gradient_list[gi]
+  is_top_row    <- gi == 1
+  for (pi in seq_along(pc_list)) {
+    pc_col        <- pc_list[pi]
+    is_left_col   <- pi == 1
+    is_bottom_row <- gi == length(gradient_list)
+    is_last_pc    <- pi == length(pc_list)
+    
+    panel_list[[length(panel_list) + 1]] <- make_slope_panel(
+      pc_col, grad,
+      show_y_axis    = TRUE,
+      show_x_axis    = is_bottom_row,
+      show_strip_top = is_top_row,
+      y_limits       = y_limits[[grad]],
+      plot_mode      = mode_lookup[paste0(pc_col, "_", grad)]
+    )
+
+    panel_list[[length(panel_list) + 1]] <- make_dot_panel(
+      pc_col, grad,
+      show_strip_top     = is_top_row,
+      large_right_margin = FALSE,
+      y_limits           = y_limits_dot,
+      plot_mode          = mode_lookup[paste0(pc_col, "_", grad)]
+    )
+  }
+}
+
+# ── 4.  Assemble ──────────────────────────────────────────────────────────────
+col_widths <- rep(c(3, 1), length(pc_list))
+n_rows     <- length(gradient_list)
+n_cols     <- length(pc_list) * 2
+
+final_plot <- Reduce(`+`, panel_list) +
+  plot_layout(
+    nrow   = n_rows,
+    ncol   = n_cols,
+    widths = col_widths,
+    guides = "collect"
+  ) &
+  theme(
+    legend.position = "bottom"
+  )
+
+final_plot
+```
+
+
+
+```{r}
+# # ── 0.  Define your combos (pc × gradient) ────────────────────────────────────
+# pc_list       <- unique(combos$pc)
+# gradient_list <- unique(combos$gradient)
+# 
+# # ── 0b. Define slope panel annotations ────────────────────────────────────────
+# annot_data1 <- data.frame(
+#   pc       = c("pc1_score", "pc2_score", "pc3_score"),
+#   gradient = c("gradient_1", "gradient_1", "gradient_1"),
+#   x        = c(-Inf, -Inf, -Inf),
+#   y        = c(Inf, Inf, Inf),
+#   label    = c(
+#     "low volume\nsmall area\nconcave\nsulci",
+#     "small area\nthick",
+#     "thin"
+#   )
+# )
+# 
+# annot_data2 <- data.frame(
+#   pc       = c("pc1_score", "pc2_score", "pc3_score"),
+#   gradient = c("gradient_1", "gradient_1", "gradient_1"),
+#   x        = c(Inf, Inf, Inf),
+#   y        = c(Inf, Inf, Inf),
+#   label    = c(
+#     "high volume\nlarge area\nconvex\ngyri",
+#     "large area\nthin",
+#     "thick"
+#   )
+# )
+# 
+# annot_data3 <- data.frame(
+#   pc       = c("pc1_score", "pc1_score", "pc1_score", "pc1_score", "pc1_score", "pc1_score"),
+#   gradient = c("gradient_1", "gradient_1", "gradient_2", "gradient_2", "gradient_3", "gradient_3"),
+#   x        = c(-Inf, -Inf, -Inf, -Inf, -Inf, -Inf),
+#   y        = c(-Inf, Inf, -Inf, Inf, -Inf, Inf),
+#   label    = c("unimodal", "transmodal", "visual", "sensorimotor", "frontoparietal", "rest")
+# )
+# 
+# make_slope_panel <- function(pc_col,
+#                              grad,
+#                              show_y_axis    = TRUE,
+#                              show_x_axis    = TRUE,
+#                              show_strip_top = TRUE,
+#                              y_limits       = NULL) {
+#   pd <- pred_data[pred_data$pc == pc_col & pred_data$gradient == grad, ]
+#   a1 <- annot_data1[annot_data1$pc == pc_col & annot_data1$gradient == grad, ]
+#   a2 <- annot_data2[annot_data2$pc == pc_col & annot_data2$gradient == grad, ]
+#   a3 <- annot_data3[annot_data3$pc == pc_col & annot_data3$gradient == grad, ]
+#   
+#   p <- ggplot() +
+#     geom_hline(yintercept = 0, color = "grey50", linewidth = 0.3, alpha = 0.5) +
+#     geom_ribbon(
+#       data = pd,
+#       aes(x = pc_score, ymin = lower.CL, ymax = upper.CL, fill = group),
+#       alpha = 0.15
+#     ) +
+#     geom_line(data = pd, aes(x = pc_score, y = fitted, color = group)) +
+#     scale_color_manual(values = group_colors) +
+#     scale_fill_manual(values  = group_colors) +
+#     labs(
+#       x     = if (show_x_axis) "PC Score" else NULL,
+#       y     = if (show_y_axis) gradient_labels[grad] else NULL,
+#       title = if (show_strip_top) pc_labels[pc_col] else NULL
+#     ) +
+#     coord_cartesian(clip = "off") +
+#     theme_minimal(base_size = 8) +
+#     theme(
+#       legend.position  = "none",
+#       panel.grid.minor = element_blank(),
+#       plot.title       = if (show_strip_top)
+#         element_text(size = 8, hjust = 0.5) else element_blank(),
+#       axis.title.x = element_text(size = 7),
+#       axis.text    = element_text(size = 6),
+#       plot.margin  = unit(c(0.1, 0.02, 0.05, 0.05), "cm")
+#     )
+#   
+#   if (!show_y_axis) {
+#     p <- p + theme(
+#       axis.title.y = element_blank(),
+#       axis.text.y  = element_blank(),
+#       axis.ticks.y = element_blank()
+#     )
+#   } else {
+#     p <- p + theme(axis.title.y = element_text(size = 7))
+#   }
+#   
+#   if (nrow(a1) > 0)
+#     p <- p + geom_text(data = a1, aes(x = x, y = y, label = label),
+#                        hjust = 0, vjust = 1, size = 2, color = "black", inherit.aes = FALSE)
+#   if (nrow(a2) > 0)
+#     p <- p + geom_text(data = a2, aes(x = x, y = y, label = label),
+#                        hjust = 1, vjust = 1, size = 2, color = "black", inherit.aes = FALSE)
+#   if (nrow(a3) > 0 && show_y_axis)
+#     p <- p + geom_text(data = a3, aes(x = x, y = y, label = label),
+#                        hjust = "inward", vjust = "inward", angle = 90,
+#                        size = 2, color = "black", inherit.aes = FALSE)
+#   p
+# }
+# 
+# make_dot_panel <- function(pc_col,
+#                            grad,
+#                            show_strip_top     = FALSE,
+#                            large_right_margin = TRUE,
+#                            y_limits           = NULL) {
+#   
+#   gci <- group_slopes_ci[group_slopes_ci$pc == pc_col &
+#                            group_slopes_ci$gradient == grad, ]
+#   
+#   right_margin <- if (large_right_margin) 0.5 else 0.05
+#   
+#   p <- ggplot(gci, aes(x = group, y = slope, color = group)) +
+#     geom_hline(yintercept = 0, color = "grey50", linewidth = 0.3, alpha = 0.5) +
+#     geom_pointrange(
+#       aes(ymin = slope_lower, ymax = slope_upper),
+#       size      = 0.5,
+#       linewidth = 0.5
+#     ) +
+#     scale_color_manual(values = group_colors) +
+#     labs(x = NULL, y = "slope") +
+#     coord_cartesian(clip = "off") +
+#     theme_minimal(base_size = 8) +
+#     theme(
+#       legend.position  = "none",
+#       panel.grid.minor = element_blank(),
+#       plot.title       = if (show_strip_top)
+#         element_text(size = 8, hjust = 0.5) else element_blank(),
+#       axis.text.x  = element_blank(),
+#       axis.ticks.x = element_blank(),
+#       axis.text.y  = element_text(size = 6),
+#       axis.title.y = element_text(size = 7),
+#       axis.title.x = element_text(size = 7),
+#       plot.margin  = unit(c(0.1, right_margin, 0.05, 0.02), "cm")
+#     )
+#   
+#   p
+# }
+# 
+# # calculate y-limits for plotting with same y-axis
+# y_limits <- lapply(setNames(gradient_list, gradient_list), function(g) {
+#   pd_g <- pred_data[pred_data$gradient == g, ]
+#   c(min(pd_g$lower.CL, na.rm = TRUE),
+#     max(pd_g$upper.CL, na.rm = TRUE))
+# })
+# 
+# y_limits_dot <- c(
+#   min(group_slopes_ci$slope_lower, na.rm = TRUE),
+#   max(group_slopes_ci$slope_upper, na.rm = TRUE)
+# )
+# 
+# # ── 3.  Build panel grid ──────────────────────────────────────────────────────
+# panel_list <- list()
+# for (gi in seq_along(gradient_list)) {
+#   grad          <- gradient_list[gi]
+#   is_top_row    <- gi == 1
+#   for (pi in seq_along(pc_list)) {
+#     pc_col        <- pc_list[pi]
+#     is_left_col   <- pi == 1
+#     is_bottom_row <- gi == length(gradient_list)
+#     is_last_pc    <- pi == length(pc_list)
+#     
+#     panel_list[[length(panel_list) + 1]] <- make_slope_panel(
+#       pc_col,
+#       grad,
+#       show_y_axis    = TRUE,
+#       show_x_axis    = is_bottom_row,
+#       show_strip_top = is_top_row,
+#       y_limits       = y_limits[[grad]]
+#     )
+#     
+#     panel_list[[length(panel_list) + 1]] <- make_dot_panel(
+#       pc_col,
+#       grad,
+#       show_strip_top     = is_top_row,
+#       # large_right_margin = !is_last_pc,
+#       large_right_margin = FALSE,
+#       y_limits           = y_limits_dot
+#     )
+#   }
+# }
+# 
+# # ── 4.  Assemble ──────────────────────────────────────────────────────────────
+# col_widths <- rep(c(3, 1), length(pc_list))
+# n_rows     <- length(gradient_list)
+# n_cols     <- length(pc_list) * 2
+# 
+# final_plot <- Reduce(`+`, panel_list) +
+#   plot_layout(
+#     nrow   = n_rows,
+#     ncol   = n_cols,
+#     widths = col_widths,
+#     guides = "collect"
+#   ) &
+#   theme(
+#     legend.position = "bottom"
+#   )
+# 
+# final_plot
+```
+
+## Figure 5
+
+```{r}
+cowplot::set_null_device(cairo_pdf)
+
+second_row <-
+  cowplot::plot_grid(
+    pc1_plot,
+    pc2_plot,
+    pc3_plot,
+    label_size = 8,
+    ncol = 3
+  )
+
+all_figs <- cowplot::plot_grid(
+  plot_loadings,
+  second_row,
+  final_plot,
+  labels = "AUTO",
+  rel_heights = c(1, 1, 3),
+  ncol = 1,
+  align = "v"
+)
+
+setwd("../figures")
+
+cowplot::set_null_device(cairo_pdf)
+ggsave(
+  all_figs,
+  filename = "figure_5.pdf",
+  device = cairo_pdf,
+  height = 21.5,
+  width = 18,
+  units = "cm",
+  bg = "transparent",
+  dpi = "print"
+)
+
+tiff(
+  "figure_5.tiff",
+  height = 21.5,
+  width = 18,
+  units = "cm",
+  compression = "lzw",
+  res = 500,
+  type = "cairo",
+  bg = "white"
+)
+all_figs
+dev.off()
+```
