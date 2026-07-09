@@ -38,3 +38,8 @@ results/results_vertexwise_lmm.RDS
 results/sFC_differences.xlsx
 results/stats_community_profiles.xlsx
 results/vis_regions_affected.csv
+
+# old names for what analyses_part1.qmd now writes as table_s01/s02/s03.csv
+results/stats_g1.csv
+results/stats_g2.csv
+results/stats_g3.csv
