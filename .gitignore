@@ -43,3 +43,6 @@ results/vis_regions_affected.csv
 results/stats_g1.csv
 results/stats_g2.csv
 results/stats_g3.csv
+
+# kept local-only, not published
+scripts/create_dataframe.R
