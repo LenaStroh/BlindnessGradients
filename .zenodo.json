@@ -1,0 +1,24 @@
+{
+  "title": "Visual experience shapes functional connectome gradients",
+  "description": "Code and data for the analyses reported in the paper: functional connectome gradient differences between sighted and blind (congenitally and late blind) individuals, their relationship to cortical structure, and structure-function coupling across the cortical hierarchy.",
+  "upload_type": "software",
+  "license": "MIT",
+  "keywords": [
+    "blindness",
+    "functional connectome gradients",
+    "resting-state fMRI",
+    "cortical structure",
+    "structure-function coupling",
+    "cortical hierarchy"
+  ],
+  "creators": [
+    {"name": "Koba, Cemal"},
+    {"name": "Falcó-Roget, Joan"},
+    {"name": "Collignon, Olivier"},
+    {"name": "Rączy, Katarzyna"},
+    {"name": "Bedny, Marina"},
+    {"name": "Tian, Mengyu"},
+    {"name": "Szwed, Marcin"},
+    {"name": "Stroh, Anna-Lena"}
+  ]
+}
