@@ -1,0 +1,16 @@
+﻿measure,pc,mean_loading,sd
+volume,1,0.55,0.02
+thickness,1,0.4,0.02
+surface area,1,0.28,0.09
+curvature,1,-0.48,0.01
+sulcal depth,1,-0.47,0.01
+volume,2,0.31,0.03
+thickness,2,0.59,0.15
+surface area,2,0.11,0.38
+curvature,2,0.42,0.07
+sulcal depth,2,0.44,0.04
+volume,3,0.03,0.11
+thickness,3,-0.34,0.22
+surface area,3,0.82,0.08
+curvature,3,0.17,0.2
+sulcal depth,3,0.07,0.27

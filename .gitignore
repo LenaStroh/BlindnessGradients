@@ -1,10 +1,40 @@
-.Rhistory
-.RData
-.Rproj.user
-Rplots.pdf
-*.html
-output_PC1_long.csv
-R/participants_long.csv
-.create_dataframe.R
-wip/
+# Only README.md, scripts/, data_tidy/, and results/ are meant to be public.
+# Everything else in this project folder is local-only (raw/participant data,
+# personal backups, admin files) and must never be committed here.
+/01 project and participants info/
+/data_raw/
+/data_delete/
+/figures/
+/publications/
+/inventur.xlsx
+/scripts_copy/
+/wip/
 
+# Regenerable model-fit caches from analyses_part3a.qmd / analyses_part3b.qmd —
+# large (up to ~86MB each) and not meant to be version-controlled.
+results/fit_*.RDS
+results/fitvertex_*.RDS
+results/.Rhistory
+
+# output of an abandoned/dead pipeline (see the commented-out vertex-wise
+# extraction code that used to be in create_dataframe.R)
+data_tidy/wip/
+
+# not read by any of the 5 active analysis notebooks
+data_tidy/centroid_dist_visual_g1.RDS
+data_tidy/centroid_dist_visual_g2.RDS
+data_tidy/centroid_dist_visual_g3.RDS
+data_tidy/gradients_orig.RDS
+data_tidy/gradients_residuals.RDS
+data_tidy/struct_pca.csv
+
+# regenerable outputs, not inputs (same reasoning as the fit_*/fitvertex_* caches)
+data_tidy/output_PC1_long.csv
+data_tidy/sf_coupling.RDS
+
+# not read/written by any script (unreferenced manuscript-era files)
+results/SFC_old_approach.docx
+results/results_vertexwise_lmm.RDS
+results/sFC_differences.xlsx
+results/stats_community_profiles.xlsx
+results/vis_regions_affected.csv

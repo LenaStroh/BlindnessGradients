@@ -1,0 +1,10 @@
+.Rhistory
+.RData
+.Rproj.user
+Rplots.pdf
+*.html
+output_PC1_long.csv
+R/participants_long.csv
+.create_dataframe.R
+wip/
+

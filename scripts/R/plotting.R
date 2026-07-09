@@ -1,25 +1,85 @@
-create_violin_boxplot <- function(data, x_var, y_var, color_var, theme, x_label, y_label, fill_colors, color_colors) {
-  ggplot(data, aes_string(x = x_var, y = y_var, color = color_var, fill = color_var)) +
-    geom_flat_violin(
-      aes_string(fill = color_var),
-      position = position_nudge(x = .25, y = 0),
-      adjust = 1.5,
-      trim = FALSE,
-      alpha = .5,
-      colour = NA
+create_violin_boxplot <- function(data, x_var, y_var, color_var, theme, x_label, y_label, fill_colors, color_colors,
+                                   violin_width = 0.4) {
+
+  data <- as.data.frame(data)
+  x_levels <- if (is.factor(data[[x_var]])) levels(data[[x_var]]) else sort(unique(as.character(data[[x_var]])))
+  data[[x_var]] <- factor(data[[x_var]], levels = x_levels)
+  x_baseline <- setNames(seq_along(x_levels), x_levels)
+
+  # keep the boxplot on the same numeric x-axis as the density curves below
+  # (mixing a discrete and a continuous x aesthetic across layers errors out),
+  # and give it an explicit group since x is no longer discrete on its own.
+  # The boxplot sits fully to the left of the gridline; the curve's own
+  # baseline sits exactly on the gridline and bulges out to the right of it.
+  data$x_num <- x_baseline[as.character(data[[x_var]])] - 0.3
+  data$group_key <- interaction(data[[x_var]], data[[color_var]])
+
+  # --- one smooth density curve per (x category, group), so individual points
+  #     can be placed exactly on the curve they belong to ---
+  curve_list <- data %>%
+    group_by(.data[[x_var]], .data[[color_var]]) %>%
+    group_map(function(sub, key) {
+      if (nrow(sub) < 2) return(NULL)
+      dens <- stats::density(sub[[y_var]], n = 512)
+      list(
+        x_cat = as.character(key[[x_var]]),
+        grp   = as.character(key[[color_var]]),
+        x0    = x_baseline[[as.character(key[[x_var]])]],
+        dens  = dens,
+        peak  = max(dens$y),
+        pts   = sub
+      )
+    })
+  curve_list <- Filter(Negate(is.null), curve_list)
+
+  # single global scale so relative curve widths stay comparable across categories
+  width_unit <- violin_width / max(vapply(curve_list, function(c) c$peak, numeric(1)))
+
+  curve_df <- bind_rows(lapply(curve_list, function(c) {
+    data.frame(
+      y = c$dens$x, x = c$x0 + c$dens$y * width_unit,
+      x_cat = c$x_cat, grp = c$grp
+    )
+  }))
+
+  # --- individual datapoints as horizontal ticks reaching into their own curve ---
+  point_df <- bind_rows(lapply(curve_list, function(c) {
+    data.frame(
+      y      = c$pts[[y_var]],
+      x_base = c$x0,
+      x_tip  = c$x0 + stats::approx(c$dens$x, c$dens$y, xout = c$pts[[y_var]], rule = 2)$y * width_unit,
+      x_cat  = c$x_cat,
+      grp    = c$grp
+    )
+  }))
+
+  ggplot() +
+    geom_path(
+      data = curve_df,
+      aes(x = x, y = y, color = grp, group = interaction(x_cat, grp)),
+      linewidth = 0.4, show.legend = FALSE
+    ) +
+    geom_segment(
+      data = point_df,
+      aes(x = x_base, xend = x_tip, y = y, yend = y, color = grp, group = interaction(x_cat, grp)),
+      linewidth = 0.1, show.legend = FALSE
     ) +
     geom_boxplot(
-      aes_string(x = x_var, y = y_var, color = color_var),
-      position = position_dodge(width = 0.25),
+      data = data,
+      aes_string(x = "x_num", y = y_var, color = color_var, group = "group_key"),
+      position = position_dodge(width = 0.2),
       outlier.shape = NA,
       alpha = .5,
-      width = .2,
+      width = .15,
       fill = "white"
     ) +
-    theme_minimal(base_size = 8) +
-    theme(axis.title.x = element_blank()) +
+    theme_classic(base_size = 8) +
+    theme(axis.title.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.grid.major.x = element_line(color = "grey92")) +
     ylab(y_label) +
-    scale_fill_manual(values = fill_colors) +
+    scale_x_continuous(breaks = x_baseline, labels = names(x_baseline)) +
     scale_color_manual(values = color_colors)
 }
 
@@ -112,6 +172,18 @@ create_dist_plot <- function(data, ridge_scale = 0.9, summary_stat = median, sum
 
   ggplot() +
 
+        # --- SC group (grey outline only) ---
+    geom_line(
+      data = curve_sc,
+      aes(x = x, y = y, group = interaction(yeo, group)),
+      color = "grey60", linewidth = 0.4, show.legend = FALSE
+    ) +
+    geom_segment(
+      data = point_sc,
+      aes(x = mean_grad, xend = mean_grad, y = y_base, yend = y_tip, group = interaction(yeo, group)),
+      color = "grey60", linewidth = 0.1, show.legend = FALSE
+    ) +
+    
     # --- CB/LB group (outline only by yeo, no fill, so individual lines stay visible) ---
     geom_line(
       data = curve_cb,
@@ -124,18 +196,7 @@ create_dist_plot <- function(data, ridge_scale = 0.9, summary_stat = median, sum
           color = yeo, group = interaction(yeo, group)),
       linewidth = 0.1, show.legend = FALSE
     ) +
-
-    # --- SC group (grey outline only) ---
-    geom_line(
-      data = curve_sc,
-      aes(x = x, y = y, group = interaction(yeo, group)),
-      color = "grey60", linewidth = 0.4, show.legend = FALSE
-    ) +
-    geom_segment(
-      data = point_sc,
-      aes(x = mean_grad, xend = mean_grad, y = y_base, yend = y_tip, group = interaction(yeo, group)),
-      color = "grey60", linewidth = 0.1, show.legend = FALSE
-    ) +
+    
     geom_point(
       data = summary_sc,
       aes(x = x, y = y_marker),
