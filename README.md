@@ -2,10 +2,27 @@
 
 Cemal Koba, Joan Falcó-Roget, Olivier Collignon, Katarzyna Rączy, Marina Bedny, Mengyu Tian, Marcin Szwed, Anna-Lena Stroh
 
-Code and data for the analyses reported in the paper above: functional connectome gradient
-differences between sighted and blind (congenitally and late blind) individuals, their
-relationship to cortical structure (thickness, surface area, curvature, sulcal depth, volume),
-and structure-function coupling across the cortical hierarchy.
+Code and data for the analyses reported in the paper above.
+
+## Abstract
+
+The human cortex is organized along continuous functional gradients that capture systematic
+transitions in functional connectivity across the brain. These gradients describe large-scale
+organizational principles, including hierarchical transitions from unimodal to transmodal
+regions. Here, we provide the first characterization of cortical gradients and their coupling
+to cortical morphology in congenitally blind (n = 31) and sighted (n = 52) adults to assess the
+relative contributions of intrinsic (genetic) and experiential factors to cortical gradient
+organization. Using resting-state fMRI, we compared functional connectome gradients and their
+association with cortical structure. Both groups exhibited similar principal gradients:
+unimodal to transmodal, somatosensory to visual, and frontoparietal segregation, demonstrating
+that the fundamental scaffold of cortical organization emerges largely independently of visual
+experience. However, blindness altered specific features of the functional connectome: the
+visual network was more segregated from the sensorimotor network and more integrated with
+transmodal and frontoparietal networks. Moreover, blind individuals showed reduced canonical
+hierarchical ordering within early visual areas, and weaker structure-function coupling. These
+findings suggest that the development of large-scale cortical gradients reflects a genetically
+guided scaffold that is subsequently refined by sensory experience, which shapes both
+hierarchical differentiation and its embedding within cortical structure.
 
 ## Repository Structure
 
